@@ -83,6 +83,11 @@ public sealed class BotConfig
             throw new InvalidOperationException("api.group_roster_timeout_seconds must be greater than zero.");
         }
 
+        if (Api.AvatarLookupTimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException("api.avatar_lookup_timeout_seconds must be greater than zero.");
+        }
+
         if (Diagnostics.MaxLoggedBodyBytes < 0)
         {
             throw new InvalidOperationException("diagnostics.max_logged_body_bytes cannot be negative.");
@@ -128,6 +133,7 @@ public sealed class BotRuntimeConfig
 public sealed class BotApiConfig
 {
     public int GroupRosterTimeoutSeconds { get; init; } = 30;
+    public int AvatarLookupTimeoutSeconds { get; init; } = 30;
 }
 
 public sealed class BotDiagnosticsConfig

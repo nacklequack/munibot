@@ -111,3 +111,32 @@ Invoke-RestMethod http://127.0.0.1:5107/api/bot/teleport `
   -Headers @{ "X-Munibot-Token" = "<token>" } `
   -Body '{"region":"Example Region","position":{"x":128,"y":128,"z":25}}'
 ```
+
+## Avatar resolution API
+
+Resolve avatar UUIDs to names:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/avatars/resolve-keys `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"avatarIds":["11111111-1111-4111-8111-111111111111"]}'
+```
+
+Resolve names to candidate UUIDs:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/avatars/resolve-names `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"names":["Example Resident"]}'
+```
+
+Search people:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:5107/api/avatars/search?query=Example" `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```

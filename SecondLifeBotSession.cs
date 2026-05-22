@@ -8,6 +8,8 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
     private readonly GridClient _client = new();
     private readonly SemaphoreSlim _groupRosterLock = new(1, 1);
     private readonly SemaphoreSlim _teleportLock = new(1, 1);
+    private readonly SemaphoreSlim _avatarLookupLock = new(1, 1);
+    private readonly SemaphoreSlim _peopleSearchLock = new(1, 1);
     private bool _eventsWired;
 
     public bool IsOnline => _client.Network.Connected;
@@ -209,6 +211,230 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         }
     }
 
+    public async Task<AvatarKeyResolutionResponseDto> ResolveAvatarKeysAsync(
+        AvatarKeyResolutionRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (!_client.Network.Connected)
+        {
+            throw new InvalidOperationException("Munibot is not logged in.");
+        }
+
+        var avatarIds = AvatarRequestValidator.NormalizeAvatarIds(request.AvatarIds);
+        await _avatarLookupLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.AvatarLookupTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var requestedAt = DateTimeOffset.UtcNow;
+            var remaining = avatarIds.ToHashSet();
+            var names = new Dictionary<UUID, string>();
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            EventHandler<UUIDNameReplyEventArgs>? handler = null;
+            handler = (_, e) =>
+            {
+                foreach (var (id, name) in e.Names)
+                {
+                    if (!remaining.Contains(id))
+                    {
+                        continue;
+                    }
+
+                    names[id] = name;
+                    remaining.Remove(id);
+                }
+
+                if (remaining.Count == 0)
+                {
+                    tcs.TrySetResult();
+                }
+            };
+
+            try
+            {
+                _client.Avatars.UUIDNameReply += handler;
+                _client.Avatars.RequestAvatarNames(avatarIds.ToList());
+
+                await using var _ = timeoutCts.Token.Register(() =>
+                    tcs.TrySetCanceled(timeoutCts.Token));
+
+                await tcs.Task.ConfigureAwait(false);
+            }
+            finally
+            {
+                _client.Avatars.UUIDNameReply -= handler;
+            }
+
+            var results = avatarIds
+                .Select(id => new AvatarKeyResolutionDto(
+                    id.ToString(),
+                    names.TryGetValue(id, out var name) ? name : null))
+                .ToList();
+
+            return new AvatarKeyResolutionResponseDto(results, requestedAt, DateTimeOffset.UtcNow);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life avatar name lookup after {config.Api.AvatarLookupTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _avatarLookupLock.Release();
+        }
+    }
+
+    public async Task<AvatarNameResolutionResponseDto> ResolveAvatarNamesAsync(
+        AvatarNameResolutionRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (!_client.Network.Connected)
+        {
+            throw new InvalidOperationException("Munibot is not logged in.");
+        }
+
+        var names = AvatarRequestValidator.NormalizeNames(request.Names);
+        var requestedAt = DateTimeOffset.UtcNow;
+        var results = new List<AvatarNameResolutionDto>();
+
+        await _avatarLookupLock.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var name in names)
+            {
+                var candidates = await SearchAvatarPickerAsync(name, cancellationToken);
+                var exact = candidates.FirstOrDefault(candidate =>
+                    string.Equals(candidate.AvatarName, name, StringComparison.OrdinalIgnoreCase));
+                exact ??= candidates.FirstOrDefault();
+
+                results.Add(new AvatarNameResolutionDto(
+                    name,
+                    exact?.AvatarId,
+                    exact?.AvatarName,
+                    candidates));
+            }
+
+            return new AvatarNameResolutionResponseDto(results, requestedAt, DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            _avatarLookupLock.Release();
+        }
+    }
+
+    public async Task<AvatarSearchResponseDto> SearchPeopleAsync(string searchText, CancellationToken cancellationToken)
+    {
+        if (!_client.Network.Connected)
+        {
+            throw new InvalidOperationException("Munibot is not logged in.");
+        }
+
+        var query = AvatarRequestValidator.NormalizeSearchText(searchText);
+        await _peopleSearchLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.AvatarLookupTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var requestedAt = DateTimeOffset.UtcNow;
+            var tcs = new TaskCompletionSource<DirPeopleReplyEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var queryId = UUID.Zero;
+
+            EventHandler<DirPeopleReplyEventArgs>? handler = null;
+            handler = (_, e) =>
+            {
+                if (e.QueryID == queryId)
+                {
+                    tcs.TrySetResult(e);
+                }
+            };
+
+            try
+            {
+                _client.Directory.DirPeopleReply += handler;
+                queryId = _client.Directory.StartPeopleSearch(query, 0);
+
+                await using var _ = timeoutCts.Token.Register(() =>
+                    tcs.TrySetCanceled(timeoutCts.Token));
+
+                var reply = await tcs.Task.ConfigureAwait(false);
+                var candidates = reply.MatchedPeople
+                    .Select(person => new AvatarSearchCandidateDto(
+                        person.AgentID.ToString(),
+                        $"{person.FirstName} {person.LastName}".Trim(),
+                        person.Online))
+                    .OrderBy(candidate => candidate.AvatarName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                return new AvatarSearchResponseDto(query, candidates, requestedAt, DateTimeOffset.UtcNow);
+            }
+            finally
+            {
+                _client.Directory.DirPeopleReply -= handler;
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life people search after {config.Api.AvatarLookupTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _peopleSearchLock.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<AvatarSearchCandidateDto>> SearchAvatarPickerAsync(
+        string avatarName,
+        CancellationToken cancellationToken)
+    {
+        var timeout = TimeSpan.FromSeconds(config.Api.AvatarLookupTimeoutSeconds);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
+
+        var queryId = UUID.Random();
+        var tcs = new TaskCompletionSource<AvatarPickerReplyEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        EventHandler<AvatarPickerReplyEventArgs>? handler = null;
+        handler = (_, e) =>
+        {
+            if (e.QueryID == queryId)
+            {
+                tcs.TrySetResult(e);
+            }
+        };
+
+        try
+        {
+            _client.Avatars.AvatarPickerReply += handler;
+            _client.Avatars.RequestAvatarNameSearch(avatarName, queryId);
+
+            await using var _ = timeoutCts.Token.Register(() =>
+                tcs.TrySetCanceled(timeoutCts.Token));
+
+            var reply = await tcs.Task.ConfigureAwait(false);
+            return reply.Avatars
+                .Select(avatar => new AvatarSearchCandidateDto(
+                    avatar.Key.ToString(),
+                    avatar.Value))
+                .OrderBy(candidate => candidate.AvatarName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life avatar name lookup after {config.Api.AvatarLookupTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _client.Avatars.AvatarPickerReply -= handler;
+        }
+    }
+
     private static GroupMemberDto ToMemberDto(UUID id, GroupMember member)
         => new(
             id.ToString(),
@@ -269,6 +495,8 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         _client.Dispose();
         _groupRosterLock.Dispose();
         _teleportLock.Dispose();
+        _avatarLookupLock.Dispose();
+        _peopleSearchLock.Dispose();
         return ValueTask.CompletedTask;
     }
 }

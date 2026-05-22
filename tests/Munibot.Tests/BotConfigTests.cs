@@ -19,6 +19,7 @@ public sealed class BotConfigTests
               max_reconnect_attempts: 3
             api:
               group_roster_timeout_seconds: 11
+              avatar_lookup_timeout_seconds: 17
             diagnostics:
               log_api_calls: true
               log_api_bodies: true
@@ -37,6 +38,7 @@ public sealed class BotConfigTests
         Assert.Equal(7, config.Runtime.ReconnectDelaySeconds);
         Assert.Equal(3, config.Runtime.MaxReconnectAttempts);
         Assert.Equal(11, config.Api.GroupRosterTimeoutSeconds);
+        Assert.Equal(17, config.Api.AvatarLookupTimeoutSeconds);
         Assert.True(config.Diagnostics.LogApiBodies);
         Assert.False(config.Diagnostics.LogSecondLifeEvents);
         var token = Assert.Single(config.Tokens);
@@ -62,6 +64,7 @@ public sealed class BotConfigTests
     [InlineData("runtime:\n  reconnect_delay_seconds: 0", "runtime.reconnect_delay_seconds")]
     [InlineData("runtime:\n  max_reconnect_attempts: -1", "runtime.max_reconnect_attempts")]
     [InlineData("api:\n  group_roster_timeout_seconds: 0", "api.group_roster_timeout_seconds")]
+    [InlineData("api:\n  avatar_lookup_timeout_seconds: 0", "api.avatar_lookup_timeout_seconds")]
     [InlineData("diagnostics:\n  max_logged_body_bytes: -1", "diagnostics.max_logged_body_bytes")]
     public void Load_RejectsInvalidPhaseOneSettings(string yamlFragment, string expectedMessage)
     {

@@ -64,3 +64,40 @@ public sealed record TeleportResultDto(
     string? CurrentSimulator,
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
+
+public sealed record AvatarNameResolutionRequestDto(
+    List<string> Names);
+
+public sealed record AvatarKeyResolutionRequestDto(
+    List<string> AvatarIds);
+
+public sealed record AvatarNameResolutionResponseDto(
+    IReadOnlyList<AvatarNameResolutionDto> Results,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
+public sealed record AvatarKeyResolutionResponseDto(
+    IReadOnlyList<AvatarKeyResolutionDto> Results,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
+public sealed record AvatarSearchResponseDto(
+    string Query,
+    IReadOnlyList<AvatarSearchCandidateDto> Candidates,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
+public sealed record AvatarNameResolutionDto(
+    string RequestedName,
+    string? AvatarId,
+    string? AvatarName,
+    IReadOnlyList<AvatarSearchCandidateDto> Candidates);
+
+public sealed record AvatarKeyResolutionDto(
+    string AvatarId,
+    string? AvatarName);
+
+public sealed record AvatarSearchCandidateDto(
+    string AvatarId,
+    string AvatarName,
+    bool? Online = null);

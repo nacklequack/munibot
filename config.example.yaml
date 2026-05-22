@@ -22,6 +22,7 @@ runtime:
 
 api:
   group_roster_timeout_seconds: 30
+  avatar_lookup_timeout_seconds: 30
 
 diagnostics:
   log_api_calls: true
