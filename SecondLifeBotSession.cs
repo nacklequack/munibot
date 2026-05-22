@@ -7,12 +7,27 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
 {
     private readonly GridClient _client = new();
     private readonly SemaphoreSlim _groupRosterLock = new(1, 1);
+    private readonly SemaphoreSlim _teleportLock = new(1, 1);
     private bool _eventsWired;
 
     public bool IsOnline => _client.Network.Connected;
     public string? CurrentSimulator => _client.Network.CurrentSim?.Name;
     public string AgentId => _client.Self.AgentID.ToString();
     public string? LastDisconnectReason { get; private set; }
+
+    public BotLocationDto GetLocation()
+    {
+        var position = _client.Network.Connected
+            ? new Vector3Dto(_client.Self.SimPosition.X, _client.Self.SimPosition.Y, _client.Self.SimPosition.Z)
+            : null;
+
+        return new BotLocationDto(
+            _client.Network.Connected,
+            _client.Network.Connected ? _client.Self.AgentID.ToString() : null,
+            _client.Network.CurrentSim?.Name,
+            position,
+            DateTimeOffset.UtcNow);
+    }
 
     public async Task LoginAsync(CancellationToken cancellationToken)
     {
@@ -155,6 +170,45 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         }
     }
 
+    public async Task<TeleportResultDto> TeleportAsync(TeleportRequestDto request, CancellationToken cancellationToken)
+    {
+        if (!_client.Network.Connected)
+        {
+            throw new InvalidOperationException("Munibot is not logged in.");
+        }
+
+        var regionName = TeleportRequestValidator.NormalizeRegionName(request.Region);
+        var position = TeleportRequestValidator.NormalizePosition(request.Position);
+
+        await _teleportLock.WaitAsync(cancellationToken);
+        try
+        {
+            var requestedAt = DateTimeOffset.UtcNow;
+            logger.LogInformation(
+                "Teleporting Munibot to {RegionName} at {Position}",
+                regionName,
+                position);
+
+            var success = await Task.Run(() => _client.Self.Teleport(regionName, position), cancellationToken);
+            if (!success)
+            {
+                throw new InvalidOperationException($"Teleport to region '{regionName}' failed.");
+            }
+
+            return new TeleportResultDto(
+                true,
+                regionName,
+                new Vector3Dto(position.X, position.Y, position.Z),
+                _client.Network.CurrentSim?.Name,
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            _teleportLock.Release();
+        }
+    }
+
     private static GroupMemberDto ToMemberDto(UUID id, GroupMember member)
         => new(
             id.ToString(),
@@ -214,6 +268,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         Logout();
         _client.Dispose();
         _groupRosterLock.Dispose();
+        _teleportLock.Dispose();
         return ValueTask.CompletedTask;
     }
 }

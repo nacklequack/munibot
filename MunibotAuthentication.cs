@@ -42,7 +42,7 @@ public static class MunibotAuthentication
 
         principal = new MunibotTokenPrincipal(
             matched.Id,
-            new HashSet<string>(matched.Scopes ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase));
+            new HashSet<string>(matched.Scopes, StringComparer.OrdinalIgnoreCase));
 
         context.Items[TokenItemKey] = principal;
         return true;

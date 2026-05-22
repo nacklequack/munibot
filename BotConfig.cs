@@ -9,7 +9,7 @@ public sealed class BotConfig
     public BotRuntimeConfig Runtime { get; init; } = new();
     public BotApiConfig Api { get; init; } = new();
     public BotDiagnosticsConfig Diagnostics { get; init; } = new();
-    public IReadOnlyList<BotApiTokenConfig> Tokens { get; init; } = Array.Empty<BotApiTokenConfig>();
+    public List<BotApiTokenConfig> Tokens { get; init; } = [];
 
     public static BotConfig Load(string path)
     {
@@ -142,5 +142,5 @@ public sealed class BotApiTokenConfig
 {
     public string Id { get; init; } = string.Empty;
     public string Value { get; init; } = string.Empty;
-    public IReadOnlyList<string> Scopes { get; init; } = Array.Empty<string>();
+    public List<string> Scopes { get; init; } = [];
 }

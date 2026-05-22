@@ -92,3 +92,22 @@ GET /ready
 ```
 
 The Corrade replacement roadmap lives in `docs/corrade-replacement-roadmap.md`.
+
+## Bot utilities
+
+Check the bot location:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/bot/location `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Teleport the bot to a region:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/bot/teleport `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"region":"Example Region","position":{"x":128,"y":128,"z":25}}'
+```

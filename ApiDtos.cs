@@ -40,3 +40,27 @@ public sealed record ReadyDto(
 public sealed record ProblemDetailsDto(
     string Error,
     int StatusCode);
+
+public sealed record Vector3Dto(
+    float X,
+    float Y,
+    float Z);
+
+public sealed record BotLocationDto(
+    bool Online,
+    string? AgentId,
+    string? CurrentSimulator,
+    Vector3Dto? Position,
+    DateTimeOffset RetrievedAt);
+
+public sealed record TeleportRequestDto(
+    string? Region,
+    Vector3Dto? Position);
+
+public sealed record TeleportResultDto(
+    bool Success,
+    string Region,
+    Vector3Dto Position,
+    string? CurrentSimulator,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);

@@ -47,6 +47,29 @@ try
             : Results.Json(dto, statusCode: StatusCodes.Status503ServiceUnavailable);
     });
 
+    app.MapGet("/api/bot/location", (SecondLifeBotSession session) =>
+        Results.Ok(session.GetLocation()))
+        .RequireMunibotScope(AuthScopes.BotOwner);
+
+    app.MapPost("/api/bot/teleport", async (
+        TeleportRequestDto request,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.TeleportAsync(request, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireMunibotScope(AuthScopes.BotTeleport);
+
     app.MapGet("/api/groups/{groupUuid}/members", async (
         string groupUuid,
         SecondLifeBotSession session,
