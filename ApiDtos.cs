@@ -29,3 +29,14 @@ public sealed record HealthDto(
     bool Online,
     string? AgentId,
     string? CurrentSimulator);
+
+public sealed record ReadyDto(
+    bool Ready,
+    bool Online,
+    string? AgentId,
+    string? CurrentSimulator,
+    string? Reason);
+
+public sealed record ProblemDetailsDto(
+    string Error,
+    int StatusCode);

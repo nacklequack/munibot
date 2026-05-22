@@ -68,3 +68,27 @@ For a targeted membership check:
 ```powershell
 Invoke-RestMethod http://127.0.0.1:5107/api/groups/22222222-2222-4222-8222-222222222222/members/11111111-1111-4111-8111-111111111111
 ```
+
+If `tokens` are configured in `config.yaml`, include one of:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members `
+  -Headers @{ Authorization = "Bearer <token>" }
+```
+
+## Diagnostics
+
+Munibot logs API calls and Second Life events to stdout. API body logging is disabled by default; when enabled, small JSON bodies are logged with token, password, payment, description, texture, and large payload fields redacted.
+
+Readiness is available at:
+
+```text
+GET /ready
+```
+
+The Corrade replacement roadmap lives in `docs/corrade-replacement-roadmap.md`.

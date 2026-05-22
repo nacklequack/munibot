@@ -8,6 +8,8 @@ public sealed class BotConfig
     public BotLoginConfig Login { get; init; } = new();
     public BotRuntimeConfig Runtime { get; init; } = new();
     public BotApiConfig Api { get; init; } = new();
+    public BotDiagnosticsConfig Diagnostics { get; init; } = new();
+    public IReadOnlyList<BotApiTokenConfig> Tokens { get; init; } = Array.Empty<BotApiTokenConfig>();
 
     public static BotConfig Load(string path)
     {
@@ -65,6 +67,39 @@ public sealed class BotConfig
         {
             throw new InvalidOperationException("runtime.exit_after_login_seconds cannot be negative.");
         }
+
+        if (Runtime.ReconnectDelaySeconds <= 0)
+        {
+            throw new InvalidOperationException("runtime.reconnect_delay_seconds must be greater than zero.");
+        }
+
+        if (Runtime.MaxReconnectAttempts < 0)
+        {
+            throw new InvalidOperationException("runtime.max_reconnect_attempts cannot be negative.");
+        }
+
+        if (Api.GroupRosterTimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException("api.group_roster_timeout_seconds must be greater than zero.");
+        }
+
+        if (Diagnostics.MaxLoggedBodyBytes < 0)
+        {
+            throw new InvalidOperationException("diagnostics.max_logged_body_bytes cannot be negative.");
+        }
+
+        foreach (var token in Tokens)
+        {
+            if (string.IsNullOrWhiteSpace(token.Id))
+            {
+                throw new InvalidOperationException("tokens[].id is required when API tokens are configured.");
+            }
+
+            if (string.IsNullOrWhiteSpace(token.Value))
+            {
+                throw new InvalidOperationException($"tokens[{token.Id}].value is required.");
+            }
+        }
     }
 }
 
@@ -85,9 +120,27 @@ public sealed class BotLoginConfig
 public sealed class BotRuntimeConfig
 {
     public int ExitAfterLoginSeconds { get; init; }
+    public bool Reconnect { get; init; } = true;
+    public int ReconnectDelaySeconds { get; init; } = 15;
+    public int MaxReconnectAttempts { get; init; }
 }
 
 public sealed class BotApiConfig
 {
     public int GroupRosterTimeoutSeconds { get; init; } = 30;
+}
+
+public sealed class BotDiagnosticsConfig
+{
+    public bool LogApiCalls { get; init; } = true;
+    public bool LogApiBodies { get; init; }
+    public bool LogSecondLifeEvents { get; init; } = true;
+    public int MaxLoggedBodyBytes { get; init; } = 4096;
+}
+
+public sealed class BotApiTokenConfig
+{
+    public string Id { get; init; } = string.Empty;
+    public string Value { get; init; } = string.Empty;
+    public IReadOnlyList<string> Scopes { get; init; } = Array.Empty<string>();
 }

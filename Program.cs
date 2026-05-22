@@ -27,8 +27,25 @@ try
 
     var app = builder.Build();
 
+    app.UseMiddleware<RequestDiagnosticsMiddleware>();
+
     app.MapGet("/health", (SecondLifeBotSession session) =>
         Results.Ok(new HealthDto(session.IsOnline, session.IsOnline ? session.AgentId : null, session.CurrentSimulator)));
+
+    app.MapGet("/ready", (SecondLifeBotSession session) =>
+    {
+        var ready = session.IsOnline;
+        var dto = new ReadyDto(
+            ready,
+            session.IsOnline,
+            session.IsOnline ? session.AgentId : null,
+            session.CurrentSimulator,
+            ready ? null : session.LastDisconnectReason ?? "Munibot is not logged in.");
+
+        return ready
+            ? Results.Ok(dto)
+            : Results.Json(dto, statusCode: StatusCodes.Status503ServiceUnavailable);
+    });
 
     app.MapGet("/api/groups/{groupUuid}/members", async (
         string groupUuid,
@@ -51,7 +68,7 @@ try
         {
             return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
         }
-    });
+    }).RequireMunibotScope(AuthScopes.RosterRead);
 
     app.MapGet("/api/groups/{groupUuid}/members/{avatarUuid}", async (
         string groupUuid,
@@ -91,7 +108,7 @@ try
         {
             return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
         }
-    });
+    }).RequireMunibotScope(AuthScopes.RosterRead);
 
     await app.RunAsync();
     return 0;

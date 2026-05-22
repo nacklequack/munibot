@@ -15,6 +15,40 @@ login:
 runtime:
   # 0 means stay online until Ctrl+C. Use a short value for a login smoke test.
   exit_after_login_seconds: 0
+  reconnect: true
+  reconnect_delay_seconds: 15
+  # 0 means retry forever.
+  max_reconnect_attempts: 0
 
 api:
   group_roster_timeout_seconds: 30
+
+diagnostics:
+  log_api_calls: true
+  # Enables small, redacted JSON request/response body logging.
+  log_api_bodies: false
+  log_second_life_events: true
+  max_logged_body_bytes: 4096
+
+# If no tokens are configured, API calls are allowed for local development.
+# Configure tokens in production. Send either X-Munibot-Token or Authorization: Bearer.
+tokens:
+  - id: munibase
+    value: replace-with-long-random-token
+    scopes:
+      - sl.roster.read
+      - sl.group.invite
+      - sl.group.eject
+      - sl.group.ban.read
+      - sl.group.ban.write
+      - sl.group.roles.read
+      - sl.avatar.resolve
+      - sl.im.send
+      - sl.texture.upload
+      - sl.inventory.give
+      - sl.wallet.read
+      - sl.wallet.pay
+      - sl.estate.read
+      - sl.estate.write
+      - sl.bot.teleport
+      - sl.bot.owner

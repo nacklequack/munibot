@@ -12,6 +12,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
     public bool IsOnline => _client.Network.Connected;
     public string? CurrentSimulator => _client.Network.CurrentSim?.Name;
     public string AgentId => _client.Self.AgentID.ToString();
+    public string? LastDisconnectReason { get; private set; }
 
     public async Task LoginAsync(CancellationToken cancellationToken)
     {
@@ -62,6 +63,8 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
             _client.Self.AgentID,
             _client.Network.CurrentSim?.Name ?? "unknown",
             _client.Self.SimPosition);
+
+        LastDisconnectReason = null;
     }
 
     public void Logout()
@@ -181,10 +184,29 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
 
         _client.Network.Disconnected += (_, e) =>
         {
+            LastDisconnectReason = $"{e.Reason}: {e.Message}";
             logger.LogWarning("Disconnected: {Reason} - {Message}", e.Reason, e.Message);
         };
 
+        if (config.Diagnostics.LogSecondLifeEvents)
+        {
+            _client.Self.ChatFromSimulator += (_, e) => LogSecondLifeEvent("chat", e);
+            _client.Self.IM += (_, e) => LogSecondLifeEvent("instant-message", e);
+            _client.Self.MoneyBalance += (_, e) => LogSecondLifeEvent("money-balance", e);
+            _client.Self.MoneyBalanceReply += (_, e) => LogSecondLifeEvent("money-balance-reply", e);
+            _client.Self.TeleportProgress += (_, e) => LogSecondLifeEvent("teleport-progress", e);
+            _client.Self.AlertMessage += (_, e) => LogSecondLifeEvent("alert-message", e);
+            _client.Self.ScriptDialog += (_, e) => LogSecondLifeEvent("script-dialog", e);
+            _client.Inventory.InventoryObjectOffered += (_, e) => LogSecondLifeEvent("inventory-offer", e);
+        }
+
         _eventsWired = true;
+    }
+
+    private void LogSecondLifeEvent(string eventName, object eventArgs)
+    {
+        var values = SecondLifeEventFormatter.Format(eventArgs, config.Diagnostics.MaxLoggedBodyBytes);
+        logger.LogInformation("SL event {EventName}: {@EventValues}", eventName, values);
     }
 
     public ValueTask DisposeAsync()
