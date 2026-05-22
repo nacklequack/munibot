@@ -25,6 +25,36 @@ public sealed record GroupMemberPresenceDto(
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
 
+public sealed record GroupBanListDto(
+    string GroupId,
+    int BanCount,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt,
+    IReadOnlyList<GroupBanEntryDto> Bans);
+
+public sealed record GroupBanEntryDto(
+    string AvatarId,
+    DateTime BannedAt);
+
+public sealed record GroupOperationResultDto(
+    string GroupId,
+    string AvatarId,
+    string Operation,
+    bool Success,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
+public sealed record GroupInviteRequestDto(
+    string? AvatarId,
+    List<string> RoleIds);
+
+public sealed record GroupMemberRolesDto(
+    string GroupId,
+    string AvatarId,
+    IReadOnlyList<string> Roles,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
 public sealed record HealthDto(
     bool Online,
     string? AgentId,

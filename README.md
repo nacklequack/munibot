@@ -140,3 +140,45 @@ Search people:
 Invoke-RestMethod "http://127.0.0.1:5107/api/avatars/search?query=Example" `
   -Headers @{ "X-Munibot-Token" = "<token>" }
 ```
+
+## Group management API
+
+Read group bans:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/bans `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Unban a group member:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/bans/<avatar-uuid>:remove `
+  -Method Post `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Invite an avatar to the default Everyone role:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/invites `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"avatarId":"<avatar-uuid>","roleIds":[]}'
+```
+
+Eject an avatar:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members/<avatar-uuid>:eject `
+  -Method Post `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Read an avatar's role names:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members/<avatar-uuid>/roles `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```

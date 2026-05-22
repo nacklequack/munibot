@@ -202,6 +202,121 @@ try
         }
     }).RequireMunibotScope(AuthScopes.RosterRead);
 
+    app.MapGet("/api/groups/{groupUuid}/bans", async (
+        string groupUuid,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.GetGroupBansAsync(groupUuid, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.GroupBanRead);
+
+    app.MapPost("/api/groups/{groupUuid}/bans/{avatarUuid}:remove", async (
+        string groupUuid,
+        string avatarUuid,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.UnbanGroupMemberAsync(groupUuid, avatarUuid, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.GroupBanWrite);
+
+    app.MapPost("/api/groups/{groupUuid}/invites", async (
+        string groupUuid,
+        GroupInviteRequestDto request,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.InviteGroupMemberAsync(groupUuid, request, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireMunibotScope(AuthScopes.GroupInvite);
+
+    app.MapPost("/api/groups/{groupUuid}/members/{avatarUuid}:eject", async (
+        string groupUuid,
+        string avatarUuid,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.EjectGroupMemberAsync(groupUuid, avatarUuid, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.GroupEject);
+
+    app.MapGet("/api/groups/{groupUuid}/members/{avatarUuid}/roles", async (
+        string groupUuid,
+        string avatarUuid,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.GetGroupMemberRolesAsync(groupUuid, avatarUuid, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.GroupRolesRead);
+
     await app.RunAsync();
     return 0;
 }

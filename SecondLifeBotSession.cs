@@ -7,6 +7,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
 {
     private readonly GridClient _client = new();
     private readonly SemaphoreSlim _groupRosterLock = new(1, 1);
+    private readonly SemaphoreSlim _groupOperationLock = new(1, 1);
     private readonly SemaphoreSlim _teleportLock = new(1, 1);
     private readonly SemaphoreSlim _avatarLookupLock = new(1, 1);
     private readonly SemaphoreSlim _peopleSearchLock = new(1, 1);
@@ -97,10 +98,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
 
     public async Task<GroupRosterDto> GetGroupRosterAsync(string groupUuid, CancellationToken cancellationToken)
     {
-        if (!UUID.TryParse(groupUuid, out var groupId) || groupId == UUID.Zero)
-        {
-            throw new ArgumentException("A valid Second Life group UUID is required.", nameof(groupUuid));
-        }
+        var groupId = GroupRequestValidator.NormalizeGroupId(groupUuid);
 
         if (!_client.Network.Connected)
         {
@@ -169,6 +167,329 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         finally
         {
             _groupRosterLock.Release();
+        }
+    }
+
+    public async Task<GroupBanListDto> GetGroupBansAsync(string groupUuid, CancellationToken cancellationToken)
+    {
+        var groupId = GroupRequestValidator.NormalizeGroupId(groupUuid);
+        EnsureOnline();
+
+        var timeout = TimeSpan.FromSeconds(config.Api.GroupOperationTimeoutSeconds);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
+
+        var requestedAt = DateTimeOffset.UtcNow;
+        BannedAgentsEventArgs? reply = null;
+
+        await _client.Groups.RequestBannedAgents(
+            groupId,
+            (_, e) => reply = e,
+            timeoutCts.Token);
+
+        if (reply is null)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life group ban list after {config.Api.GroupOperationTimeoutSeconds} seconds.");
+        }
+
+        if (!reply.Success)
+        {
+            throw new InvalidOperationException($"Second Life group ban list request failed for group '{groupId}'.");
+        }
+
+        var bans = (reply.BannedAgents ?? new Dictionary<UUID, DateTime>())
+            .OrderBy(entry => entry.Key.ToString(), StringComparer.OrdinalIgnoreCase)
+            .Select(entry => new GroupBanEntryDto(entry.Key.ToString(), entry.Value))
+            .ToList();
+
+        return new GroupBanListDto(
+            groupId.ToString(),
+            bans.Count,
+            requestedAt,
+            DateTimeOffset.UtcNow,
+            bans);
+    }
+
+    public Task<GroupOperationResultDto> UnbanGroupMemberAsync(
+        string groupUuid,
+        string avatarUuid,
+        CancellationToken cancellationToken)
+        => ExecuteGroupBanActionAsync(groupUuid, avatarUuid, GroupBanAction.Unban, "unban", cancellationToken);
+
+    public async Task<GroupOperationResultDto> InviteGroupMemberAsync(
+        string groupUuid,
+        GroupInviteRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var groupId = GroupRequestValidator.NormalizeGroupId(groupUuid);
+        var avatarId = GroupRequestValidator.NormalizeAvatarId(request.AvatarId);
+        var roleIds = GroupRequestValidator.NormalizeRoleIds(request.RoleIds);
+        EnsureOnline();
+
+        await _groupOperationLock.WaitAsync(cancellationToken);
+        try
+        {
+            var requestedAt = DateTimeOffset.UtcNow;
+            _client.Groups.Invite(groupId, roleIds.ToList(), avatarId);
+
+            logger.LogInformation(
+                "Issued group invite for avatar {AvatarId} to group {GroupId} roles={RoleCount}",
+                avatarId,
+                groupId,
+                roleIds.Count);
+
+            return new GroupOperationResultDto(
+                groupId.ToString(),
+                avatarId.ToString(),
+                "invite",
+                true,
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            _groupOperationLock.Release();
+        }
+    }
+
+    public async Task<GroupOperationResultDto> EjectGroupMemberAsync(
+        string groupUuid,
+        string avatarUuid,
+        CancellationToken cancellationToken)
+    {
+        var groupId = GroupRequestValidator.NormalizeGroupId(groupUuid);
+        var avatarId = GroupRequestValidator.NormalizeAvatarId(avatarUuid);
+        EnsureOnline();
+
+        await _groupOperationLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.GroupOperationTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var requestedAt = DateTimeOffset.UtcNow;
+            var tcs = new TaskCompletionSource<GroupOperationEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            EventHandler<GroupOperationEventArgs>? handler = null;
+            handler = (_, e) =>
+            {
+                if (e.GroupID == groupId)
+                {
+                    tcs.TrySetResult(e);
+                }
+            };
+
+            try
+            {
+                _client.Groups.GroupMemberEjected += handler;
+                _client.Groups.EjectUser(groupId, avatarId);
+
+                await using var _ = timeoutCts.Token.Register(() =>
+                    tcs.TrySetCanceled(timeoutCts.Token));
+
+                var reply = await tcs.Task.ConfigureAwait(false);
+                if (!reply.Success)
+                {
+                    throw new InvalidOperationException($"Second Life group eject failed for avatar '{avatarId}'.");
+                }
+
+                return new GroupOperationResultDto(
+                    groupId.ToString(),
+                    avatarId.ToString(),
+                    "eject",
+                    true,
+                    requestedAt,
+                    DateTimeOffset.UtcNow);
+            }
+            finally
+            {
+                _client.Groups.GroupMemberEjected -= handler;
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life group eject after {config.Api.GroupOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _groupOperationLock.Release();
+        }
+    }
+
+    public async Task<GroupMemberRolesDto> GetGroupMemberRolesAsync(
+        string groupUuid,
+        string avatarUuid,
+        CancellationToken cancellationToken)
+    {
+        var groupId = GroupRequestValidator.NormalizeGroupId(groupUuid);
+        var avatarId = GroupRequestValidator.NormalizeAvatarId(avatarUuid);
+        EnsureOnline();
+
+        var requestedAt = DateTimeOffset.UtcNow;
+        var roster = await GetGroupRosterAsync(groupUuid, cancellationToken);
+        var isMember = roster.Members.Any(member =>
+            string.Equals(member.AvatarId, avatarId.ToString(), StringComparison.OrdinalIgnoreCase));
+
+        if (!isMember)
+        {
+            return new GroupMemberRolesDto(
+                groupId.ToString(),
+                avatarId.ToString(),
+                Array.Empty<string>(),
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+
+        var roles = await GetGroupRolesByIdAsync(groupId, cancellationToken);
+        var roleMembers = await GetGroupRoleMembersAsync(groupId, cancellationToken);
+        var roleNames = new SortedSet<string>(StringComparer.OrdinalIgnoreCase) { "Everyone" };
+
+        foreach (var pair in roleMembers)
+        {
+            UUID? roleId = null;
+            if (pair.Value == avatarId)
+            {
+                roleId = pair.Key;
+            }
+            else if (pair.Key == avatarId)
+            {
+                roleId = pair.Value;
+            }
+
+            if (roleId.HasValue && roles.TryGetValue(roleId.Value, out var role) && !string.IsNullOrWhiteSpace(role.Name))
+            {
+                roleNames.Add(role.Name);
+            }
+        }
+
+        return new GroupMemberRolesDto(
+            groupId.ToString(),
+            avatarId.ToString(),
+            roleNames.ToList(),
+            requestedAt,
+            DateTimeOffset.UtcNow);
+    }
+
+    private async Task<GroupOperationResultDto> ExecuteGroupBanActionAsync(
+        string groupUuid,
+        string avatarUuid,
+        GroupBanAction action,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        var groupId = GroupRequestValidator.NormalizeGroupId(groupUuid);
+        var avatarId = GroupRequestValidator.NormalizeAvatarId(avatarUuid);
+        EnsureOnline();
+
+        var timeout = TimeSpan.FromSeconds(config.Api.GroupOperationTimeoutSeconds);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
+
+        var requestedAt = DateTimeOffset.UtcNow;
+        await _client.Groups.RequestBanAction(
+            groupId,
+            action,
+            [avatarId],
+            (_, _) => logger.LogInformation(
+                "Group {Operation} action acknowledged for avatar {AvatarId} in group {GroupId}",
+                operation,
+                avatarId,
+                groupId),
+            timeoutCts.Token);
+
+        return new GroupOperationResultDto(
+            groupId.ToString(),
+            avatarId.ToString(),
+            operation,
+            true,
+            requestedAt,
+            DateTimeOffset.UtcNow);
+    }
+
+    private async Task<IReadOnlyDictionary<UUID, GroupRole>> GetGroupRolesByIdAsync(
+        UUID groupId,
+        CancellationToken cancellationToken)
+    {
+        var timeout = TimeSpan.FromSeconds(config.Api.GroupOperationTimeoutSeconds);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
+
+        var tcs = new TaskCompletionSource<GroupRolesDataReplyEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requestId = UUID.Zero;
+
+        EventHandler<GroupRolesDataReplyEventArgs>? handler = null;
+        handler = (_, e) =>
+        {
+            if (e.RequestID == requestId)
+            {
+                tcs.TrySetResult(e);
+            }
+        };
+
+        try
+        {
+            _client.Groups.GroupRoleDataReply += handler;
+            requestId = _client.Groups.RequestGroupRoles(groupId);
+
+            await using var _ = timeoutCts.Token.Register(() =>
+                tcs.TrySetCanceled(timeoutCts.Token));
+
+            var reply = await tcs.Task.ConfigureAwait(false);
+            return reply.Roles;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life group roles after {config.Api.GroupOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _client.Groups.GroupRoleDataReply -= handler;
+        }
+    }
+
+    private async Task<IReadOnlyList<KeyValuePair<UUID, UUID>>> GetGroupRoleMembersAsync(
+        UUID groupId,
+        CancellationToken cancellationToken)
+    {
+        var timeout = TimeSpan.FromSeconds(config.Api.GroupOperationTimeoutSeconds);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
+
+        var tcs = new TaskCompletionSource<GroupRolesMembersReplyEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requestId = UUID.Zero;
+
+        EventHandler<GroupRolesMembersReplyEventArgs>? handler = null;
+        handler = (_, e) =>
+        {
+            if (e.RequestID == requestId)
+            {
+                tcs.TrySetResult(e);
+            }
+        };
+
+        try
+        {
+            _client.Groups.GroupRoleMembersReply += handler;
+            requestId = _client.Groups.RequestGroupRolesMembers(groupId);
+
+            await using var _ = timeoutCts.Token.Register(() =>
+                tcs.TrySetCanceled(timeoutCts.Token));
+
+            var reply = await tcs.Task.ConfigureAwait(false);
+            return reply.RolesMembers;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life group role members after {config.Api.GroupOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _client.Groups.GroupRoleMembersReply -= handler;
         }
     }
 
@@ -444,6 +765,14 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
             member.Contribution,
             member.Powers.ToString());
 
+    private void EnsureOnline()
+    {
+        if (!_client.Network.Connected)
+        {
+            throw new InvalidOperationException("Munibot is not logged in.");
+        }
+    }
+
     private void WireEvents()
     {
         if (_eventsWired)
@@ -494,6 +823,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         Logout();
         _client.Dispose();
         _groupRosterLock.Dispose();
+        _groupOperationLock.Dispose();
         _teleportLock.Dispose();
         _avatarLookupLock.Dispose();
         _peopleSearchLock.Dispose();
