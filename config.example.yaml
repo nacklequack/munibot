@@ -1,0 +1,20 @@
+login:
+  first_name: Example
+  last_name: Resident
+  password: replace-me
+  channel: Munibot
+  version: 0.1.0
+  start: last
+  login_uri: https://login.agni.lindenlab.com/cgi-bin/login.cgi
+  timeout_seconds: 60
+
+  # Optional, only if the account is challenged for MFA.
+  # mfa_token: "123456"
+  # mfa_hash: ""
+
+runtime:
+  # 0 means stay online until Ctrl+C. Use a short value for a login smoke test.
+  exit_after_login_seconds: 0
+
+api:
+  group_roster_timeout_seconds: 30
