@@ -10,6 +10,7 @@ public static class AuthScopes
     public const string GroupRolesRead = "sl.group.roles.read";
     public const string AvatarResolve = "sl.avatar.resolve";
     public const string ImSend = "sl.im.send";
+    public const string LocalChatSend = "sl.localchat.send";
     public const string TextureUpload = "sl.texture.upload";
     public const string InventoryGive = "sl.inventory.give";
     public const string WalletRead = "sl.wallet.read";

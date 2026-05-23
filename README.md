@@ -131,6 +131,16 @@ Invoke-RestMethod http://127.0.0.1:5107/api/ims `
   -Body '{"avatarId":"11111111-1111-4111-8111-111111111111","message":"Hello from Munibot"}'
 ```
 
+Send local chat from the bot's current location:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/local-chat `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"message":"Hello from Munibot","channel":0,"chatType":"normal"}'
+```
+
 ## Avatar resolution API
 
 Resolve avatar UUIDs to names:

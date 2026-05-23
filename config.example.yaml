@@ -57,6 +57,7 @@ tokens:
       - sl.group.roles.read
       - sl.avatar.resolve
       - sl.im.send
+      - sl.localchat.send
       - sl.texture.upload
       - sl.inventory.give
       - sl.wallet.read

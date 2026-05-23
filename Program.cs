@@ -125,6 +125,25 @@ try
         }
     }).RequireMunibotScope(AuthScopes.ImSend);
 
+    app.MapPost("/api/local-chat", async (
+        SendLocalChatRequestDto request,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.SendLocalChatAsync(request, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireMunibotScope(AuthScopes.LocalChatSend, AuthScopes.BotOwner);
+
     app.MapPost("/api/avatars/resolve-names", async (
         AvatarNameResolutionRequestDto request,
         SecondLifeBotSession session,

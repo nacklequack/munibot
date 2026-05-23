@@ -17,6 +17,7 @@ public sealed class MunibotAuthenticationTests
         Assert.NotNull(principal);
         Assert.Equal("anonymous-dev", principal.Id);
         Assert.True(MunibotAuthentication.HasScope(principal, AuthScopes.RosterRead));
+        Assert.True(MunibotAuthentication.HasAnyScope(principal, [AuthScopes.LocalChatSend, AuthScopes.BotOwner]));
     }
 
     [Fact]
@@ -47,6 +48,17 @@ public sealed class MunibotAuthenticationTests
         Assert.True(authenticated);
         Assert.NotNull(principal);
         Assert.True(MunibotAuthentication.HasScope(principal, AuthScopes.BotOwner));
+    }
+
+    [Fact]
+    public void HasAnyScope_AcceptsAnyMatchingConfiguredScope()
+    {
+        var principal = new MunibotTokenPrincipal(
+            "test",
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { AuthScopes.BotOwner });
+
+        Assert.True(MunibotAuthentication.HasAnyScope(principal, [AuthScopes.LocalChatSend, AuthScopes.BotOwner]));
+        Assert.False(MunibotAuthentication.HasAnyScope(principal, [AuthScopes.WalletPay, AuthScopes.EstateWrite]));
     }
 
     [Fact]

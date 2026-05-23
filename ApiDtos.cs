@@ -105,6 +105,18 @@ public sealed record SendInstantMessageResultDto(
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
 
+public sealed record SendLocalChatRequestDto(
+    string? Message,
+    int? Channel,
+    string? ChatType);
+
+public sealed record SendLocalChatResultDto(
+    bool Success,
+    int Channel,
+    string ChatType,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
 public sealed record AvatarNameResolutionRequestDto(
     List<string> Names);
 

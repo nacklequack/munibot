@@ -592,6 +592,33 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
             DateTimeOffset.UtcNow);
     }
 
+    public async Task<SendLocalChatResultDto> SendLocalChatAsync(
+        SendLocalChatRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var message = LocalChatRequestValidator.NormalizeMessage(request.Message);
+        var channel = LocalChatRequestValidator.NormalizeChannel(request.Channel);
+        var chatType = LocalChatRequestValidator.NormalizeChatType(request.ChatType);
+        var requestedAt = DateTimeOffset.UtcNow;
+
+        await Task.Run(() => _client.Self.Chat(message, channel, chatType), cancellationToken);
+
+        logger.LogInformation(
+            "Sent local chat length={MessageLength} channel={Channel} chatType={ChatType}",
+            message.Length,
+            channel,
+            chatType);
+
+        return new SendLocalChatResultDto(
+            true,
+            channel,
+            chatType.ToString(),
+            requestedAt,
+            DateTimeOffset.UtcNow);
+    }
+
     public async Task<AvatarKeyResolutionResponseDto> ResolveAvatarKeysAsync(
         AvatarKeyResolutionRequestDto request,
         CancellationToken cancellationToken)

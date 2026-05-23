@@ -56,6 +56,9 @@ public static class MunibotAuthentication
     public static bool HasScope(MunibotTokenPrincipal principal, string requiredScope)
         => principal.Scopes.Contains("*") || principal.Scopes.Contains(requiredScope);
 
+    public static bool HasAnyScope(MunibotTokenPrincipal principal, IReadOnlyCollection<string> requiredScopes)
+        => principal.Scopes.Contains("*") || requiredScopes.Any(principal.Scopes.Contains);
+
     private static string? GetSuppliedToken(HttpContext context)
     {
         var headerToken = context.Request.Headers[HeaderName].FirstOrDefault();

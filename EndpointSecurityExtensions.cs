@@ -5,6 +5,9 @@ namespace Munibot;
 public static class EndpointSecurityExtensions
 {
     public static RouteHandlerBuilder RequireMunibotScope(this RouteHandlerBuilder builder, string requiredScope)
+        => builder.RequireMunibotScope([requiredScope]);
+
+    public static RouteHandlerBuilder RequireMunibotScope(this RouteHandlerBuilder builder, params string[] requiredScopes)
     {
         return builder.AddEndpointFilter(async (context, next) =>
         {
@@ -18,10 +21,11 @@ public static class EndpointSecurityExtensions
                     statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            if (principal is null || !MunibotAuthentication.HasScope(principal, requiredScope))
+            if (principal is null || !MunibotAuthentication.HasAnyScope(principal, requiredScopes))
             {
+                var scopeList = string.Join("' or '", requiredScopes);
                 return Results.Json(
-                    new ProblemDetailsDto($"Missing required Munibot scope '{requiredScope}'.", StatusCodes.Status403Forbidden),
+                    new ProblemDetailsDto($"Missing required Munibot scope '{scopeList}'.", StatusCodes.Status403Forbidden),
                     statusCode: StatusCodes.Status403Forbidden);
             }
 
