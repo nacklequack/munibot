@@ -86,6 +86,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
             _client.Self.SimPosition);
 
         ConfigureMovementKeepalive();
+        SendMovementKeepalive();
         await AllowConfiguredExperiencesAsync(cancellationToken);
         LastDisconnectReason = null;
     }
@@ -117,6 +118,18 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         logger.LogInformation(
             "Movement keepalive enabled; sending AgentUpdate every {IntervalSeconds} second(s).",
             config.Runtime.MovementKeepaliveSeconds);
+    }
+
+    public bool SendMovementKeepalive()
+    {
+        if (config.Runtime.MovementKeepaliveSeconds == 0 || !_client.Network.Connected)
+        {
+            return false;
+        }
+
+        _client.Self.Movement.SendUpdate(false);
+        logger.LogDebug("Movement keepalive AgentUpdate sent.");
+        return true;
     }
 
     public async Task<GroupRosterDto> GetGroupRosterAsync(string groupUuid, CancellationToken cancellationToken)
@@ -799,6 +812,14 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
                     result.ExperienceId,
                     experience.Name ?? "unnamed",
                     result.Changed);
+            }
+            catch (InvalidOperationException ex)
+                when (ex.Message.Contains("experience preferences are not available", StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogInformation(
+                    "Configured experience {ExperienceId} ({ExperienceName}) could not be auto-allowed because Second Life did not expose experience preferences in this simulator.",
+                    experience.Id,
+                    experience.Name ?? "unnamed");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

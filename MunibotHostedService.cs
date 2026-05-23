@@ -52,11 +52,32 @@ public sealed class MunibotHostedService(
 
         logger.LogInformation("Munibot is online. Press Ctrl+C to logout.");
 
+        var nextKeepaliveAt = NextKeepaliveAt();
         while (!stoppingToken.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
 
-            if (session.IsOnline || !config.Runtime.Reconnect)
+            if (session.IsOnline)
+            {
+                if (config.Runtime.MovementKeepaliveSeconds > 0 &&
+                    DateTimeOffset.UtcNow >= nextKeepaliveAt)
+                {
+                    try
+                    {
+                        session.SendMovementKeepalive();
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger.LogWarning(ex, "Movement keepalive failed");
+                    }
+
+                    nextKeepaliveAt = NextKeepaliveAt();
+                }
+
+                continue;
+            }
+
+            if (!config.Runtime.Reconnect)
             {
                 continue;
             }
@@ -70,6 +91,7 @@ public sealed class MunibotHostedService(
             try
             {
                 await session.LoginAsync(stoppingToken);
+                nextKeepaliveAt = NextKeepaliveAt();
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -77,6 +99,9 @@ public sealed class MunibotHostedService(
             }
         }
     }
+
+    private DateTimeOffset NextKeepaliveAt()
+        => DateTimeOffset.UtcNow.AddSeconds(Math.Max(config.Runtime.MovementKeepaliveSeconds, 1));
 
     public override Task StopAsync(CancellationToken cancellationToken)
     {

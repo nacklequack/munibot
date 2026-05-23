@@ -21,6 +21,7 @@ public sealed class RequestDiagnosticsMiddleware(
         var requestBody = await TryReadRequestBodyAsync(context);
         var originalBody = context.Response.Body;
         await using var responseBuffer = new MemoryStream();
+        var failedByException = false;
 
         if (config.Diagnostics.LogApiBodies)
         {
@@ -34,6 +35,12 @@ public sealed class RequestDiagnosticsMiddleware(
         catch (Exception ex)
         {
             sw.Stop();
+            failedByException = true;
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            }
+
             logger.LogError(
                 ex,
                 "API {Method} {Path} failed status=500 elapsedMs={ElapsedMs} requestId={RequestId} token={TokenId} error={Error}",
@@ -59,16 +66,19 @@ public sealed class RequestDiagnosticsMiddleware(
                 context.Response.Body = originalBody;
             }
 
-            logger.LogInformation(
-                "API {Method} {Path} status={StatusCode} elapsedMs={ElapsedMs} requestId={RequestId} token={TokenId} requestBody={RequestBody} responseBody={ResponseBody}",
-                context.Request.Method,
-                context.Request.Path,
-                context.Response.StatusCode,
-                sw.ElapsedMilliseconds,
-                requestId,
-                MunibotAuthentication.GetAuthenticatedTokenId(context) ?? "anonymous",
-                requestBody ?? "[disabled]",
-                responseBody ?? "[disabled]");
+            if (!failedByException)
+            {
+                logger.LogInformation(
+                    "API {Method} {Path} status={StatusCode} elapsedMs={ElapsedMs} requestId={RequestId} token={TokenId} requestBody={RequestBody} responseBody={ResponseBody}",
+                    context.Request.Method,
+                    context.Request.Path,
+                    context.Response.StatusCode,
+                    sw.ElapsedMilliseconds,
+                    requestId,
+                    MunibotAuthentication.GetAuthenticatedTokenId(context) ?? "anonymous",
+                    requestBody ?? "[disabled]",
+                    responseBody ?? "[disabled]");
+            }
         }
     }
 

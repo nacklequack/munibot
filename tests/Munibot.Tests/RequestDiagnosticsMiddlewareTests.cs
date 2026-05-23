@@ -102,6 +102,35 @@ public sealed class RequestDiagnosticsMiddlewareTests
         Assert.Equal("{\"status\":\"ok\"}", await responseReader.ReadToEndAsync());
     }
 
+    [Fact]
+    public async Task InvokeAsync_WhenDownstreamThrows_LogsOnlyFailure()
+    {
+        var config = new BotConfig
+        {
+            Diagnostics = new BotDiagnosticsConfig
+            {
+                LogApiCalls = true,
+                LogApiBodies = false
+            }
+        };
+        var logger = new CapturingLogger<RequestDiagnosticsMiddleware>();
+        var middleware = new RequestDiagnosticsMiddleware(
+            _ => throw new InvalidOperationException("boom"),
+            config,
+            logger);
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Method = "GET";
+        httpContext.Request.Path = "/api/test";
+        httpContext.Response.Body = new MemoryStream();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => middleware.InvokeAsync(httpContext));
+
+        var message = Assert.Single(logger.Messages);
+        Assert.Contains("failed status=500", message);
+        Assert.DoesNotContain(" status=200 ", message);
+    }
+
     private sealed class CapturingLogger<T> : ILogger<T>
     {
         public List<string> Messages { get; } = [];
