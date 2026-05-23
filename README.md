@@ -112,6 +112,16 @@ Invoke-RestMethod http://127.0.0.1:5107/api/bot/teleport `
   -Body '{"region":"Example Region","position":{"x":128,"y":128,"z":25}}'
 ```
 
+Send an instant message:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/ims `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"avatarId":"11111111-1111-4111-8111-111111111111","message":"Hello from Munibot"}'
+```
+
 ## Avatar resolution API
 
 Resolve avatar UUIDs to names:

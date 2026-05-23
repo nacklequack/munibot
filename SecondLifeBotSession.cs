@@ -532,6 +532,30 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         }
     }
 
+    public async Task<SendInstantMessageResultDto> SendInstantMessageAsync(
+        SendInstantMessageRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var avatarId = InstantMessageRequestValidator.NormalizeAvatarId(request.AvatarId);
+        var message = InstantMessageRequestValidator.NormalizeMessage(request.Message);
+        var requestedAt = DateTimeOffset.UtcNow;
+
+        await Task.Run(() => _client.Self.InstantMessage(avatarId, message), cancellationToken);
+
+        logger.LogInformation(
+            "Sent instant message to avatar {AvatarId} length={MessageLength}",
+            avatarId,
+            message.Length);
+
+        return new SendInstantMessageResultDto(
+            avatarId.ToString(),
+            true,
+            requestedAt,
+            DateTimeOffset.UtcNow);
+    }
+
     public async Task<AvatarKeyResolutionResponseDto> ResolveAvatarKeysAsync(
         AvatarKeyResolutionRequestDto request,
         CancellationToken cancellationToken)

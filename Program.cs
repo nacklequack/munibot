@@ -73,6 +73,25 @@ try
         }
     }).RequireMunibotScope(AuthScopes.BotTeleport);
 
+    app.MapPost("/api/ims", async (
+        SendInstantMessageRequestDto request,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.SendInstantMessageAsync(request, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireMunibotScope(AuthScopes.ImSend);
+
     app.MapPost("/api/avatars/resolve-names", async (
         AvatarNameResolutionRequestDto request,
         SecondLifeBotSession session,

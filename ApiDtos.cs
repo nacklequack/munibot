@@ -95,6 +95,16 @@ public sealed record TeleportResultDto(
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
 
+public sealed record SendInstantMessageRequestDto(
+    string? AvatarId,
+    string? Message);
+
+public sealed record SendInstantMessageResultDto(
+    string AvatarId,
+    bool Success,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
 public sealed record AvatarNameResolutionRequestDto(
     List<string> Names);
 
