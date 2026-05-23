@@ -85,6 +85,8 @@ Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members `
 
 Munibot logs API calls and Second Life events to stdout. API body logging is disabled by default; when enabled, small JSON bodies are logged with token, password, payment, description, texture, and large payload fields redacted. Probe requests to `/health` and `/ready` are not logged at info level.
 
+After login, Munibot sends a lightweight Second Life `AgentUpdate` on `runtime.movement_keepalive_seconds` so the simulator circuit does not sit idle. The default is 20 seconds; set it to `0` only for debugging.
+
 Readiness is available at:
 
 ```text

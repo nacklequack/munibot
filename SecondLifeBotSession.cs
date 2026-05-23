@@ -82,6 +82,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
             _client.Network.CurrentSim?.Name ?? "unknown",
             _client.Self.SimPosition);
 
+        ConfigureMovementKeepalive();
         LastDisconnectReason = null;
     }
 
@@ -94,6 +95,24 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
 
         logger.LogInformation("Logging out");
         _client.Network.Logout();
+    }
+
+    private void ConfigureMovementKeepalive()
+    {
+        if (config.Runtime.MovementKeepaliveSeconds == 0)
+        {
+            _client.Self.Movement.UpdateInterval = 0;
+            logger.LogInformation("Movement keepalive is disabled.");
+            return;
+        }
+
+        _client.Self.Movement.AutoResetControls = true;
+        _client.Self.Movement.UpdateInterval =
+            (int)TimeSpan.FromSeconds(config.Runtime.MovementKeepaliveSeconds).TotalMilliseconds;
+
+        logger.LogInformation(
+            "Movement keepalive enabled; sending AgentUpdate every {IntervalSeconds} second(s).",
+            config.Runtime.MovementKeepaliveSeconds);
     }
 
     public async Task<GroupRosterDto> GetGroupRosterAsync(string groupUuid, CancellationToken cancellationToken)

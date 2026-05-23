@@ -78,6 +78,11 @@ public sealed class BotConfig
             throw new InvalidOperationException("runtime.max_reconnect_attempts cannot be negative.");
         }
 
+        if (Runtime.MovementKeepaliveSeconds < 0)
+        {
+            throw new InvalidOperationException("runtime.movement_keepalive_seconds cannot be negative.");
+        }
+
         if (Api.GroupRosterTimeoutSeconds <= 0)
         {
             throw new InvalidOperationException("api.group_roster_timeout_seconds must be greater than zero.");
@@ -133,6 +138,7 @@ public sealed class BotRuntimeConfig
     public bool Reconnect { get; init; } = true;
     public int ReconnectDelaySeconds { get; init; } = 15;
     public int MaxReconnectAttempts { get; init; }
+    public int MovementKeepaliveSeconds { get; init; } = 20;
 }
 
 public sealed class BotApiConfig

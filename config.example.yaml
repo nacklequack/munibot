@@ -19,6 +19,9 @@ runtime:
   reconnect_delay_seconds: 15
   # 0 means retry forever.
   max_reconnect_attempts: 0
+  # Sends periodic AgentUpdate packets so the simulator UDP circuit does not sit idle.
+  # Set to 0 to disable.
+  movement_keepalive_seconds: 20
 
 api:
   group_roster_timeout_seconds: 30
