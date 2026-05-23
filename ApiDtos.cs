@@ -141,3 +141,17 @@ public sealed record AvatarSearchCandidateDto(
     string AvatarId,
     string AvatarName,
     bool? Online = null);
+
+public sealed record ExperiencePreferencesDto(
+    IReadOnlyList<string> Allowed,
+    IReadOnlyList<string> Blocked,
+    DateTimeOffset RetrievedAt);
+
+public sealed record ExperienceOperationResultDto(
+    string ExperienceId,
+    string Operation,
+    bool Changed,
+    IReadOnlyList<string> Allowed,
+    IReadOnlyList<string> Blocked,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);

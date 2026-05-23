@@ -9,6 +9,7 @@ public sealed class BotConfig
     public BotRuntimeConfig Runtime { get; init; } = new();
     public BotApiConfig Api { get; init; } = new();
     public BotDiagnosticsConfig Diagnostics { get; init; } = new();
+    public BotExperiencesConfig Experiences { get; init; } = new();
     public List<BotApiTokenConfig> Tokens { get; init; } = [];
 
     public static BotConfig Load(string path)
@@ -103,6 +104,21 @@ public sealed class BotConfig
             throw new InvalidOperationException("diagnostics.max_logged_body_bytes cannot be negative.");
         }
 
+        foreach (var experience in Experiences.AutoAllow)
+        {
+            if (string.IsNullOrWhiteSpace(experience.Id))
+            {
+                throw new InvalidOperationException("experiences.auto_allow[].id is required.");
+            }
+
+            if (!OpenMetaverse.UUID.TryParse(experience.Id, out var experienceId) ||
+                experienceId == OpenMetaverse.UUID.Zero)
+            {
+                throw new InvalidOperationException(
+                    $"experiences.auto_allow[{experience.Id}].id must be a valid non-zero Second Life experience UUID.");
+            }
+        }
+
         foreach (var token in Tokens)
         {
             if (string.IsNullOrWhiteSpace(token.Id))
@@ -154,6 +170,17 @@ public sealed class BotDiagnosticsConfig
     public bool LogApiBodies { get; init; }
     public bool LogSecondLifeEvents { get; init; } = true;
     public int MaxLoggedBodyBytes { get; init; } = 4096;
+}
+
+public sealed class BotExperiencesConfig
+{
+    public List<BotExperienceAllowConfig> AutoAllow { get; init; } = [];
+}
+
+public sealed class BotExperienceAllowConfig
+{
+    public string Id { get; init; } = string.Empty;
+    public string? Name { get; init; }
 }
 
 public sealed class BotApiTokenConfig

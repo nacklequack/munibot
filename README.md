@@ -87,6 +87,13 @@ Munibot logs API calls and Second Life events to stdout. API body logging is dis
 
 After login, Munibot sends a lightweight Second Life `AgentUpdate` on `runtime.movement_keepalive_seconds` so the simulator circuit does not sit idle. The default is 20 seconds; set it to `0` only for debugging.
 
+`ExperienceEvent` generic messages are logged with their raw parameters when Second Life event logging is enabled. To persistently allow a trusted experience for the bot account, configure `experiences.auto_allow` or call:
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:5107/api/experiences/<experience-uuid>:allow `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
 Readiness is available at:
 
 ```text

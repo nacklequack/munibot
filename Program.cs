@@ -54,6 +54,39 @@ try
         Results.Ok(session.GetLocation()))
         .RequireMunibotScope(AuthScopes.BotOwner);
 
+    app.MapGet("/api/experiences/preferences", async (
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.GetExperiencePreferencesAsync(cancellationToken));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireMunibotScope(AuthScopes.BotOwner);
+
+    app.MapPost("/api/experiences/{experienceUuid}:allow", async (
+        string experienceUuid,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.AllowExperienceAsync(experienceUuid, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireMunibotScope(AuthScopes.BotOwner);
+
     app.MapPost("/api/bot/teleport", async (
         TeleportRequestDto request,
         SecondLifeBotSession session,

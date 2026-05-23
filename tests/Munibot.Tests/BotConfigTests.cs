@@ -27,6 +27,10 @@ public sealed class BotConfigTests
               log_api_bodies: true
               log_second_life_events: false
               max_logged_body_bytes: 128
+            experiences:
+              auto_allow:
+                - id: 11111111-1111-1111-1111-111111111111
+                  name: Example Region Experience
             tokens:
               - id: munibase
                 value: token-value
@@ -45,6 +49,9 @@ public sealed class BotConfigTests
         Assert.Equal(19, config.Api.GroupOperationTimeoutSeconds);
         Assert.True(config.Diagnostics.LogApiBodies);
         Assert.False(config.Diagnostics.LogSecondLifeEvents);
+        var experience = Assert.Single(config.Experiences.AutoAllow);
+        Assert.Equal("11111111-1111-1111-1111-111111111111", experience.Id);
+        Assert.Equal("Example Region Experience", experience.Name);
         var token = Assert.Single(config.Tokens);
         Assert.Equal("munibase", token.Id);
         Assert.Equal("token-value", token.Value);
@@ -72,6 +79,7 @@ public sealed class BotConfigTests
     [InlineData("api:\n  avatar_lookup_timeout_seconds: 0", "api.avatar_lookup_timeout_seconds")]
     [InlineData("api:\n  group_operation_timeout_seconds: 0", "api.group_operation_timeout_seconds")]
     [InlineData("diagnostics:\n  max_logged_body_bytes: -1", "diagnostics.max_logged_body_bytes")]
+    [InlineData("experiences:\n  auto_allow:\n    - id: not-a-uuid", "experiences.auto_allow[not-a-uuid].id")]
     public void Load_RejectsInvalidPhaseOneSettings(string yamlFragment, string expectedMessage)
     {
         var path = WriteConfig($"""

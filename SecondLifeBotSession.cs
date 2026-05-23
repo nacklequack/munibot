@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using OpenMetaverse;
+using OpenMetaverse.Messages.Linden;
+using OpenMetaverse.Packets;
 
 namespace Munibot;
 
@@ -11,6 +13,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
     private readonly SemaphoreSlim _teleportLock = new(1, 1);
     private readonly SemaphoreSlim _avatarLookupLock = new(1, 1);
     private readonly SemaphoreSlim _peopleSearchLock = new(1, 1);
+    private readonly SemaphoreSlim _experienceLock = new(1, 1);
     private bool _eventsWired;
 
     public bool IsOnline => _client.Network.Connected;
@@ -83,6 +86,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
             _client.Self.SimPosition);
 
         ConfigureMovementKeepalive();
+        await AllowConfiguredExperiencesAsync(cancellationToken);
         LastDisconnectReason = null;
     }
 
@@ -752,6 +756,136 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         }
     }
 
+    public async Task<ExperiencePreferencesDto> GetExperiencePreferencesAsync(CancellationToken cancellationToken)
+    {
+        if (!_client.Network.Connected)
+        {
+            throw new InvalidOperationException("Munibot is not logged in.");
+        }
+
+        var preferences = await GetExperiencePreferencesCoreAsync(cancellationToken);
+        return ToExperiencePreferencesDto(preferences, DateTimeOffset.UtcNow);
+    }
+
+    public async Task<ExperienceOperationResultDto> AllowExperienceAsync(
+        string experienceUuid,
+        CancellationToken cancellationToken)
+    {
+        if (!_client.Network.Connected)
+        {
+            throw new InvalidOperationException("Munibot is not logged in.");
+        }
+
+        var experienceId = ExperienceRequestValidator.NormalizeExperienceId(experienceUuid);
+        return await AllowExperienceCoreAsync(experienceId, cancellationToken);
+    }
+
+    private async Task AllowConfiguredExperiencesAsync(CancellationToken cancellationToken)
+    {
+        if (config.Experiences.AutoAllow.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var experience in config.Experiences.AutoAllow)
+        {
+            var experienceId = ExperienceRequestValidator.NormalizeExperienceId(experience.Id);
+
+            try
+            {
+                var result = await AllowExperienceCoreAsync(experienceId, cancellationToken);
+                logger.LogInformation(
+                    "Configured experience {ExperienceId} ({ExperienceName}) is allowed; changed={Changed}",
+                    result.ExperienceId,
+                    experience.Name ?? "unnamed",
+                    result.Changed);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Failed to auto-allow configured experience {ExperienceId} ({ExperienceName})",
+                    experience.Id,
+                    experience.Name ?? "unnamed");
+            }
+        }
+    }
+
+    private async Task<ExperienceOperationResultDto> AllowExperienceCoreAsync(
+        UUID experienceId,
+        CancellationToken cancellationToken)
+    {
+        var requestedAt = DateTimeOffset.UtcNow;
+
+        await _experienceLock.WaitAsync(cancellationToken);
+        try
+        {
+            var preferences = await LoadExperiencePreferencesAsync(cancellationToken);
+            var changed = false;
+
+            if (preferences.Blocked.RemoveAll(id => id == experienceId) > 0)
+            {
+                changed = true;
+            }
+
+            if (!preferences.Allowed.Contains(experienceId))
+            {
+                preferences.Allowed.Add(experienceId);
+                changed = true;
+            }
+
+            if (changed)
+            {
+                await _client.Self.SetExperiencePreferencesAsync(preferences, cancellationToken);
+                preferences = await LoadExperiencePreferencesAsync(cancellationToken);
+            }
+
+            if (!preferences.Allowed.Contains(experienceId))
+            {
+                throw new InvalidOperationException(
+                    $"Second Life did not confirm experience {experienceId} in the allowed list.");
+            }
+
+            return new ExperienceOperationResultDto(
+                experienceId.ToString(),
+                "allow",
+                changed,
+                preferences.Allowed.Select(id => id.ToString()).ToList(),
+                preferences.Blocked.Select(id => id.ToString()).ToList(),
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            _experienceLock.Release();
+        }
+    }
+
+    private async Task<ExperiencePreferencesMessage> GetExperiencePreferencesCoreAsync(
+        CancellationToken cancellationToken)
+    {
+        await _experienceLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await LoadExperiencePreferencesAsync(cancellationToken);
+        }
+        finally
+        {
+            _experienceLock.Release();
+        }
+    }
+
+    private async Task<ExperiencePreferencesMessage> LoadExperiencePreferencesAsync(
+        CancellationToken cancellationToken)
+    {
+        var preferences = await _client.Self.GetExperiencePreferencesAsync(cancellationToken)
+            ?? await _client.Self.GetAgentExperiencePermissionsAsync(cancellationToken);
+
+        return preferences
+            ?? throw new InvalidOperationException(
+                "Second Life experience preferences are not available in the current simulator.");
+    }
+
     private async Task<IReadOnlyList<AvatarSearchCandidateDto>> SearchAvatarPickerAsync(
         string avatarName,
         CancellationToken cancellationToken)
@@ -842,6 +976,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
 
         if (config.Diagnostics.LogSecondLifeEvents)
         {
+            _client.Network.RegisterCallback(PacketType.GenericMessage, (_, e) => LogGenericMessage(e));
             _client.Self.ChatFromSimulator += (_, e) => LogSecondLifeEvent("chat", e);
             _client.Self.IM += (_, e) => LogSecondLifeEvent("instant-message", e);
             _client.Self.MoneyBalance += (_, e) => LogSecondLifeEvent("money-balance", e);
@@ -861,6 +996,56 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         logger.LogInformation("SL event {EventName}: {@EventValues}", eventName, values);
     }
 
+    private void LogGenericMessage(PacketReceivedEventArgs eventArgs)
+    {
+        if (eventArgs.Packet is not GenericMessagePacket message)
+        {
+            return;
+        }
+
+        var method = Utils.BytesToString(message.MethodData.Method);
+        if (!string.Equals(method, "ExperienceEvent", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogDebug("SL generic message {Method}", method);
+            return;
+        }
+
+        var parameters = message.ParamList
+            .Select((parameter, index) => new GenericMessageParameterDto(
+                index,
+                FormatGenericMessageParameter(parameter.Parameter)))
+            .ToList();
+
+        logger.LogInformation(
+            "SL event generic-message: method={Method} invoice={Invoice} transactionId={TransactionId} params={@Parameters}",
+            method,
+            message.MethodData.Invoice,
+            message.AgentData.TransactionID,
+            parameters);
+    }
+
+    private string FormatGenericMessageParameter(byte[] parameter)
+    {
+        var value = Utils.BytesToString(parameter);
+        if (value.Length > 0 && value.Length <= config.Diagnostics.MaxLoggedBodyBytes)
+        {
+            return value;
+        }
+
+        var maxBytes = Math.Min(parameter.Length, Math.Max(config.Diagnostics.MaxLoggedBodyBytes, 0));
+        return $"hex:{Convert.ToHexString(parameter.AsSpan(0, maxBytes))}";
+    }
+
+    private static ExperiencePreferencesDto ToExperiencePreferencesDto(
+        ExperiencePreferencesMessage preferences,
+        DateTimeOffset retrievedAt)
+        => new(
+            preferences.Allowed.Select(id => id.ToString()).ToList(),
+            preferences.Blocked.Select(id => id.ToString()).ToList(),
+            retrievedAt);
+
+    private sealed record GenericMessageParameterDto(int Index, string Value);
+
     public ValueTask DisposeAsync()
     {
         Logout();
@@ -870,6 +1055,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         _teleportLock.Dispose();
         _avatarLookupLock.Dispose();
         _peopleSearchLock.Dispose();
+        _experienceLock.Dispose();
         return ValueTask.CompletedTask;
     }
 }
