@@ -83,7 +83,7 @@ Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members `
 
 ## Diagnostics
 
-Munibot logs API calls and Second Life events to stdout. API body logging is disabled by default; when enabled, small JSON bodies are logged with token, password, payment, description, texture, and large payload fields redacted.
+Munibot logs API calls and Second Life events to stdout. API body logging is disabled by default; when enabled, small JSON bodies are logged with token, password, payment, description, texture, and large payload fields redacted. Probe requests to `/health` and `/ready` are not logged at info level.
 
 Readiness is available at:
 

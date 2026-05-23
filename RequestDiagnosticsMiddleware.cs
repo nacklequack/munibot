@@ -10,7 +10,7 @@ public sealed class RequestDiagnosticsMiddleware(
 {
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!config.Diagnostics.LogApiCalls)
+        if (!config.Diagnostics.LogApiCalls || IsProbePath(context.Request.Path))
         {
             await next(context);
             return;
@@ -112,4 +112,8 @@ public sealed class RequestDiagnosticsMiddleware(
            contentType.Contains("json", StringComparison.OrdinalIgnoreCase) ||
            contentType.Contains("text", StringComparison.OrdinalIgnoreCase) ||
            contentType.Contains("form", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsProbePath(PathString path)
+        => path.Equals("/health", StringComparison.OrdinalIgnoreCase) ||
+           path.Equals("/ready", StringComparison.OrdinalIgnoreCase);
 }
