@@ -14,6 +14,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
     private readonly SemaphoreSlim _avatarLookupLock = new(1, 1);
     private readonly SemaphoreSlim _peopleSearchLock = new(1, 1);
     private readonly SemaphoreSlim _experienceLock = new(1, 1);
+    private readonly SemaphoreSlim _inventoryLock = new(1, 1);
     private bool _eventsWired;
 
     public bool IsOnline => _client.Network.Connected;
@@ -619,6 +620,221 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
             DateTimeOffset.UtcNow);
     }
 
+    public async Task<InventoryItemDto> GetInventoryItemByIdAsync(
+        string itemUuid,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var itemId = InventoryRequestValidator.NormalizeItemId(itemUuid)
+            ?? throw new ArgumentException("A valid Second Life inventory item UUID is required.");
+
+        await _inventoryLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.InventoryOperationTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var item = await ResolveInventoryItemAsync(
+                itemId,
+                itemPath: null,
+                fallbackItemName: null,
+                fallbackAssetType: null,
+                timeout,
+                timeoutCts.Token);
+
+            return ToInventoryItemDto(item);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life inventory item lookup after {config.Api.InventoryOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _inventoryLock.Release();
+        }
+    }
+
+    public async Task<InventoryItemDto> GetInventoryItemByPathAsync(
+        string itemPath,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var normalizedPath = InventoryRequestValidator.NormalizeItemPath(itemPath)
+            ?? throw new ArgumentException("Second Life inventory item path is required.");
+
+        await _inventoryLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.InventoryOperationTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var item = await ResolveInventoryItemAsync(
+                itemId: null,
+                normalizedPath,
+                fallbackItemName: null,
+                fallbackAssetType: null,
+                timeout,
+                timeoutCts.Token);
+
+            return ToInventoryItemDto(item);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life inventory item lookup after {config.Api.InventoryOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _inventoryLock.Release();
+        }
+    }
+
+    public async Task<InventoryGiveResultDto> GiveInventoryItemAsync(
+        InventoryGiveRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var avatarId = InventoryRequestValidator.NormalizeAvatarId(request.AvatarId);
+        var itemId = InventoryRequestValidator.NormalizeItemId(request.ItemId);
+        var itemPath = InventoryRequestValidator.NormalizeItemPath(request.ItemPath);
+        var fallbackItemName = InventoryRequestValidator.NormalizeItemName(request.ItemName);
+        var fallbackAssetType = InventoryRequestValidator.NormalizeAssetType(request.AssetType);
+        var doEffect = InventoryRequestValidator.NormalizeDoEffect(request.DoEffect);
+
+        if (!itemId.HasValue && itemPath is null)
+        {
+            throw new ArgumentException("Either itemId or itemPath is required.");
+        }
+
+        await _inventoryLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.InventoryOperationTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var requestedAt = DateTimeOffset.UtcNow;
+            var item = await ResolveInventoryItemAsync(
+                itemId,
+                itemPath,
+                fallbackItemName,
+                fallbackAssetType,
+                timeout,
+                timeoutCts.Token);
+
+            await Task.Run(
+                () => _client.Inventory.GiveItem(item.UUID, item.Name, item.AssetType, avatarId, doEffect),
+                timeoutCts.Token);
+
+            logger.LogInformation(
+                "Issued inventory give item={ItemId} assetType={AssetType} recipient={AvatarId}",
+                item.UUID,
+                item.AssetType,
+                avatarId);
+
+            return new InventoryGiveResultDto(
+                avatarId.ToString(),
+                item.UUID.ToString(),
+                item.Name,
+                item.AssetType.ToString(),
+                true,
+                doEffect,
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life inventory give after {config.Api.InventoryOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _inventoryLock.Release();
+        }
+    }
+
+    public async Task<TextureUploadResultDto> UploadTextureAsync(
+        TextureUploadRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var name = TextureUploadRequestValidator.NormalizeName(request.Name);
+        var description = TextureUploadRequestValidator.NormalizeDescription(request.Description);
+        var data = TextureUploadRequestValidator.DecodeTextureData(request.TextureDataBase64);
+        TextureUploadRequestValidator.RequireUploadFeeConfirmation(request.ConfirmUploadFee);
+
+        await _inventoryLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.TextureUploadTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var requestedAt = DateTimeOffset.UtcNow;
+            var folderId = _client.Inventory.FindFolderForType(AssetType.Texture);
+            if (folderId == UUID.Zero)
+            {
+                throw new InvalidOperationException("Second Life did not expose a valid texture inventory folder.");
+            }
+
+            var result = await _client.Inventory.CreateItemFromAssetAsync(
+                data,
+                name,
+                description,
+                AssetType.Texture,
+                InventoryType.Texture,
+                folderId,
+                Permissions.FullPermissions,
+                timeoutCts.Token,
+                progress: null);
+
+            if (!result.Success)
+            {
+                var status = string.IsNullOrWhiteSpace(result.Status)
+                    ? result.Error?.Message ?? "unknown error"
+                    : result.Status;
+
+                throw result.Error is null
+                    ? new InvalidOperationException($"Second Life texture upload failed: {status}")
+                    : new InvalidOperationException($"Second Life texture upload failed: {status}", result.Error);
+            }
+
+            logger.LogInformation(
+                "Uploaded texture {TextureName} item={ItemId} asset={AssetId} bytes={ByteCount}",
+                name,
+                result.ItemID,
+                result.AssetID,
+                data.Length);
+
+            return new TextureUploadResultDto(
+                result.ItemID.ToString(),
+                result.AssetID.ToString(),
+                name,
+                true,
+                result.Status,
+                data.Length,
+                TextureUploadRequestValidator.ExpectedTextureUploadCostLinden,
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life texture upload after {config.Api.TextureUploadTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _inventoryLock.Release();
+        }
+    }
+
     public async Task<AvatarKeyResolutionResponseDto> ResolveAvatarKeysAsync(
         AvatarKeyResolutionRequestDto request,
         CancellationToken cancellationToken)
@@ -980,6 +1196,79 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
             _client.Avatars.AvatarPickerReply -= handler;
         }
     }
+
+    private async Task<InventoryItem> ResolveInventoryItemAsync(
+        UUID? itemId,
+        string? itemPath,
+        string? fallbackItemName,
+        AssetType? fallbackAssetType,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var resolvedItemId = itemId;
+        if (!resolvedItemId.HasValue && itemPath is not null)
+        {
+            var store = _client.Inventory.Store
+                ?? throw new InvalidOperationException("Second Life inventory store is not available.");
+            var rootFolderId = store.RootFolder?.UUID ?? UUID.Zero;
+            if (rootFolderId == UUID.Zero)
+            {
+                throw new InvalidOperationException("Second Life inventory root folder is not available.");
+            }
+
+            resolvedItemId = await Task.Run(
+                () => _client.Inventory.FindObjectByPath(rootFolderId, _client.Self.AgentID, itemPath, timeout),
+                cancellationToken);
+        }
+
+        if (!resolvedItemId.HasValue || resolvedItemId.Value == UUID.Zero)
+        {
+            throw new KeyNotFoundException($"Second Life inventory item '{itemPath}' was not found.");
+        }
+
+        var inventoryStore = _client.Inventory.Store
+            ?? throw new InvalidOperationException("Second Life inventory store is not available.");
+
+        if (inventoryStore.TryGetValue<InventoryItem>(resolvedItemId.Value, out var localItem) &&
+            localItem is not null)
+        {
+            return localItem;
+        }
+
+        var fetchedItem = await _client.Inventory.FetchItemAsync(
+            resolvedItemId.Value,
+            _client.Self.AgentID,
+            cancellationToken);
+
+        if (fetchedItem is not null)
+        {
+            return fetchedItem;
+        }
+
+        if (fallbackItemName is not null && fallbackAssetType.HasValue)
+        {
+            return new InventoryItem(resolvedItemId.Value)
+            {
+                Name = fallbackItemName,
+                OwnerID = _client.Self.AgentID,
+                AssetType = fallbackAssetType.Value
+            };
+        }
+
+        throw new KeyNotFoundException(
+            $"Second Life inventory item '{resolvedItemId.Value}' was not found in Munibot's inventory cache.");
+    }
+
+    private static InventoryItemDto ToInventoryItemDto(InventoryItem item)
+        => new(
+            item.UUID.ToString(),
+            item.AssetUUID == UUID.Zero ? null : item.AssetUUID.ToString(),
+            item.Name,
+            item.AssetType.ToString(),
+            item.InventoryType.ToString(),
+            item.ParentUUID.ToString(),
+            item.OwnerID.ToString(),
+            string.IsNullOrWhiteSpace(item.Description) ? null : item.Description);
 
     private static GroupMemberDto ToMemberDto(UUID id, GroupMember member)
         => new(

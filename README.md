@@ -141,6 +141,46 @@ Invoke-RestMethod http://127.0.0.1:5107/api/local-chat `
   -Body '{"message":"Hello from Munibot","channel":0,"chatType":"normal"}'
 ```
 
+## Inventory and texture API
+
+Look up an inventory item by UUID:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/inventory/items/<item-uuid> `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Look up an inventory item by path:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:5107/api/inventory/items/by-path?path=Textures/Example Region%20Poster" `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Give an inventory item to an avatar:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/inventory/give `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"avatarId":"<avatar-uuid>","itemId":"<item-uuid>","doEffect":true}'
+```
+
+If the item is not already loaded in the bot's inventory cache, include `itemName` and `assetType` so Second Life has the metadata needed for delivery.
+
+Upload a texture asset into the bot's Textures folder:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/textures `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"name":"Example Region Poster","description":"Uploaded by Munibot","textureDataBase64":"<sl-ready-jpeg2000-base64>","confirmUploadFee":true}'
+```
+
+Texture upload requires `confirmUploadFee: true` because Second Life charges the bot account's upload fee. The first implementation expects SL-ready texture asset bytes, typically JPEG2000, encoded as base64.
+
 ## Avatar resolution API
 
 Resolve avatar UUIDs to names:

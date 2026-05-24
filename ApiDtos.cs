@@ -117,6 +117,51 @@ public sealed record SendLocalChatResultDto(
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
 
+public sealed record InventoryItemDto(
+    string ItemId,
+    string? AssetId,
+    string Name,
+    string AssetType,
+    string InventoryType,
+    string ParentId,
+    string OwnerId,
+    string? Description);
+
+public sealed record InventoryGiveRequestDto(
+    string? AvatarId,
+    string? ItemId,
+    string? ItemPath,
+    string? ItemName,
+    string? AssetType,
+    bool? DoEffect);
+
+public sealed record InventoryGiveResultDto(
+    string AvatarId,
+    string ItemId,
+    string ItemName,
+    string AssetType,
+    bool Success,
+    bool DoEffect,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
+public sealed record TextureUploadRequestDto(
+    string? Name,
+    string? Description,
+    string? TextureDataBase64,
+    bool? ConfirmUploadFee);
+
+public sealed record TextureUploadResultDto(
+    string ItemId,
+    string AssetId,
+    string Name,
+    bool Success,
+    string? Status,
+    int BytesUploaded,
+    int ExpectedUploadCostLinden,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
 public sealed record AvatarNameResolutionRequestDto(
     List<string> Names);
 

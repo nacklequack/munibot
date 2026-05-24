@@ -22,6 +22,8 @@ public sealed class BotConfigTests
               group_roster_timeout_seconds: 11
               avatar_lookup_timeout_seconds: 17
               group_operation_timeout_seconds: 19
+              inventory_operation_timeout_seconds: 23
+              texture_upload_timeout_seconds: 29
             diagnostics:
               log_api_calls: true
               log_api_bodies: true
@@ -47,6 +49,8 @@ public sealed class BotConfigTests
         Assert.Equal(11, config.Api.GroupRosterTimeoutSeconds);
         Assert.Equal(17, config.Api.AvatarLookupTimeoutSeconds);
         Assert.Equal(19, config.Api.GroupOperationTimeoutSeconds);
+        Assert.Equal(23, config.Api.InventoryOperationTimeoutSeconds);
+        Assert.Equal(29, config.Api.TextureUploadTimeoutSeconds);
         Assert.True(config.Diagnostics.LogApiBodies);
         Assert.False(config.Diagnostics.LogSecondLifeEvents);
         var experience = Assert.Single(config.Experiences.AutoAllow);
@@ -78,6 +82,8 @@ public sealed class BotConfigTests
     [InlineData("api:\n  group_roster_timeout_seconds: 0", "api.group_roster_timeout_seconds")]
     [InlineData("api:\n  avatar_lookup_timeout_seconds: 0", "api.avatar_lookup_timeout_seconds")]
     [InlineData("api:\n  group_operation_timeout_seconds: 0", "api.group_operation_timeout_seconds")]
+    [InlineData("api:\n  inventory_operation_timeout_seconds: 0", "api.inventory_operation_timeout_seconds")]
+    [InlineData("api:\n  texture_upload_timeout_seconds: 0", "api.texture_upload_timeout_seconds")]
     [InlineData("diagnostics:\n  max_logged_body_bytes: -1", "diagnostics.max_logged_body_bytes")]
     [InlineData("experiences:\n  auto_allow:\n    - id: not-a-uuid", "experiences.auto_allow[not-a-uuid].id")]
     public void Load_RejectsInvalidPhaseOneSettings(string yamlFragment, string expectedMessage)

@@ -27,6 +27,8 @@ api:
   group_roster_timeout_seconds: 30
   avatar_lookup_timeout_seconds: 30
   group_operation_timeout_seconds: 30
+  inventory_operation_timeout_seconds: 30
+  texture_upload_timeout_seconds: 60
 
 diagnostics:
   log_api_calls: true

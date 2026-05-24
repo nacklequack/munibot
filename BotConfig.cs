@@ -99,6 +99,16 @@ public sealed class BotConfig
             throw new InvalidOperationException("api.group_operation_timeout_seconds must be greater than zero.");
         }
 
+        if (Api.InventoryOperationTimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException("api.inventory_operation_timeout_seconds must be greater than zero.");
+        }
+
+        if (Api.TextureUploadTimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException("api.texture_upload_timeout_seconds must be greater than zero.");
+        }
+
         if (Diagnostics.MaxLoggedBodyBytes < 0)
         {
             throw new InvalidOperationException("diagnostics.max_logged_body_bytes cannot be negative.");
@@ -162,6 +172,8 @@ public sealed class BotApiConfig
     public int GroupRosterTimeoutSeconds { get; init; } = 30;
     public int AvatarLookupTimeoutSeconds { get; init; } = 30;
     public int GroupOperationTimeoutSeconds { get; init; } = 30;
+    public int InventoryOperationTimeoutSeconds { get; init; } = 30;
+    public int TextureUploadTimeoutSeconds { get; init; } = 60;
 }
 
 public sealed class BotDiagnosticsConfig
