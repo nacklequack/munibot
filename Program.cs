@@ -26,6 +26,7 @@ try
 
     builder.Services.AddSingleton(botConfig);
     builder.Services.AddSingleton<SecondLifeBotSession>();
+    builder.Services.AddSingleton<ISecondLifeAccountHistoryClient, SecondLifeAccountHistoryClient>();
     builder.Services.AddHostedService<MunibotHostedService>();
 
     var app = builder.Build();
@@ -247,6 +248,30 @@ try
             return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
         }
     }).RequireMunibotScope(AuthScopes.TextureUpload);
+
+    app.MapGet("/api/wallet/account-history", async (
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        ISecondLifeAccountHistoryClient accountHistoryClient,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await accountHistoryClient.GetTransactionsAsync(fromUtc, toUtc, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.WalletHistory);
 
     app.MapPost("/api/avatars/resolve-names", async (
         AvatarNameResolutionRequestDto request,

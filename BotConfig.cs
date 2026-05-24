@@ -10,6 +10,7 @@ public sealed class BotConfig
     public BotApiConfig Api { get; init; } = new();
     public BotDiagnosticsConfig Diagnostics { get; init; } = new();
     public BotExperiencesConfig Experiences { get; init; } = new();
+    public BotAccountHistoryConfig AccountHistory { get; init; } = new();
     public List<BotApiTokenConfig> Tokens { get; init; } = [];
 
     public static BotConfig Load(string path)
@@ -109,6 +110,11 @@ public sealed class BotConfig
             throw new InvalidOperationException("api.texture_upload_timeout_seconds must be greater than zero.");
         }
 
+        if (AccountHistory.TimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException("account_history.timeout_seconds must be greater than zero.");
+        }
+
         if (Diagnostics.MaxLoggedBodyBytes < 0)
         {
             throw new InvalidOperationException("diagnostics.max_logged_body_bytes cannot be negative.");
@@ -187,6 +193,12 @@ public sealed class BotDiagnosticsConfig
 public sealed class BotExperiencesConfig
 {
     public List<BotExperienceAllowConfig> AutoAllow { get; init; } = [];
+}
+
+public sealed class BotAccountHistoryConfig
+{
+    public string? Username { get; init; }
+    public int TimeoutSeconds { get; init; } = 45;
 }
 
 public sealed class BotExperienceAllowConfig

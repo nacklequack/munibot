@@ -33,6 +33,9 @@ public sealed class BotConfigTests
               auto_allow:
                 - id: 11111111-1111-1111-1111-111111111111
                   name: Example Region Experience
+            account_history:
+              username: Test Resident
+              timeout_seconds: 31
             tokens:
               - id: munibase
                 value: token-value
@@ -56,6 +59,8 @@ public sealed class BotConfigTests
         var experience = Assert.Single(config.Experiences.AutoAllow);
         Assert.Equal("11111111-1111-1111-1111-111111111111", experience.Id);
         Assert.Equal("Example Region Experience", experience.Name);
+        Assert.Equal("Test Resident", config.AccountHistory.Username);
+        Assert.Equal(31, config.AccountHistory.TimeoutSeconds);
         var token = Assert.Single(config.Tokens);
         Assert.Equal("munibase", token.Id);
         Assert.Equal("token-value", token.Value);
@@ -84,6 +89,7 @@ public sealed class BotConfigTests
     [InlineData("api:\n  group_operation_timeout_seconds: 0", "api.group_operation_timeout_seconds")]
     [InlineData("api:\n  inventory_operation_timeout_seconds: 0", "api.inventory_operation_timeout_seconds")]
     [InlineData("api:\n  texture_upload_timeout_seconds: 0", "api.texture_upload_timeout_seconds")]
+    [InlineData("account_history:\n  timeout_seconds: 0", "account_history.timeout_seconds")]
     [InlineData("diagnostics:\n  max_logged_body_bytes: -1", "diagnostics.max_logged_body_bytes")]
     [InlineData("experiences:\n  auto_allow:\n    - id: not-a-uuid", "experiences.auto_allow[not-a-uuid].id")]
     public void Load_RejectsInvalidPhaseOneSettings(string yamlFragment, string expectedMessage)

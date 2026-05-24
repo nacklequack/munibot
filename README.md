@@ -181,6 +181,17 @@ Invoke-RestMethod http://127.0.0.1:5107/api/textures `
 
 Texture upload requires `confirmUploadFee: true` because Second Life charges the bot account's upload fee. The first implementation expects SL-ready texture asset bytes, typically JPEG2000, encoded as base64.
 
+## Wallet API
+
+Fetch historical Second Life account transactions for the configured bot web account:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:5107/api/wallet/account-history?fromUtc=2026-05-22T00:00:00Z&toUtc=2026-05-23T00:00:00Z" `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+This uses the configured bot `login.password` for the Second Life web account login and requires the `sl.wallet.history` token scope. The endpoint is intended for callback reconciliation and returns transaction id, type, resident, timestamp, ending balance, and inferred adjacent-balance deltas.
+
 ## Avatar resolution API
 
 Resolve avatar UUIDs to names:

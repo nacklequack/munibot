@@ -162,6 +162,23 @@ public sealed record TextureUploadResultDto(
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
 
+public sealed record AccountHistoryResponseDto(
+    DateTimeOffset FromUtc,
+    DateTimeOffset ToUtc,
+    int TransactionCount,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt,
+    IReadOnlyList<AccountHistoryTransactionDto> Transactions);
+
+public sealed record AccountHistoryTransactionDto(
+    string TransactionId,
+    string? Type,
+    string? Description,
+    string? Resident,
+    DateTimeOffset OccurredAtUtc,
+    uint EndBalance,
+    int? InferredAmountDelta);
+
 public sealed record AvatarNameResolutionRequestDto(
     List<string> Names);
 
