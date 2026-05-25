@@ -11,6 +11,7 @@ public sealed class BotConfig
     public BotDiagnosticsConfig Diagnostics { get; init; } = new();
     public BotExperiencesConfig Experiences { get; init; } = new();
     public BotAccountHistoryConfig AccountHistory { get; init; } = new();
+    public BotMunibaseConfig Munibase { get; init; } = new();
     public List<BotApiTokenConfig> Tokens { get; init; } = [];
 
     public static BotConfig Load(string path)
@@ -120,6 +121,28 @@ public sealed class BotConfig
             throw new InvalidOperationException("account_history.timeout_seconds must be greater than zero.");
         }
 
+        if (Munibase.WalletEvents.TimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException("munibase.wallet_events.timeout_seconds must be greater than zero.");
+        }
+
+        if (Munibase.WalletEvents.MaxDeliveryAttempts <= 0)
+        {
+            throw new InvalidOperationException("munibase.wallet_events.max_delivery_attempts must be greater than zero.");
+        }
+
+        if (Munibase.WalletEvents.RetryDelaySeconds < 0)
+        {
+            throw new InvalidOperationException("munibase.wallet_events.retry_delay_seconds cannot be negative.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(Munibase.WalletEvents.EndpointUrl) &&
+            string.IsNullOrWhiteSpace(Munibase.WalletEvents.SharedSecret))
+        {
+            throw new InvalidOperationException(
+                "munibase.wallet_events.shared_secret is required when munibase.wallet_events.endpoint_url is configured.");
+        }
+
         if (Diagnostics.MaxLoggedBodyBytes < 0)
         {
             throw new InvalidOperationException("diagnostics.max_logged_body_bytes cannot be negative.");
@@ -205,6 +228,24 @@ public sealed class BotAccountHistoryConfig
 {
     public string? Username { get; init; }
     public int TimeoutSeconds { get; init; } = 45;
+}
+
+public sealed class BotMunibaseConfig
+{
+    public BotMunibaseWalletEventsConfig WalletEvents { get; init; } = new();
+}
+
+public sealed class BotMunibaseWalletEventsConfig
+{
+    public string? EndpointUrl { get; init; }
+    public string? SharedSecret { get; init; }
+    public int TimeoutSeconds { get; init; } = 10;
+    public int MaxDeliveryAttempts { get; init; } = 3;
+    public int RetryDelaySeconds { get; init; } = 2;
+
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(EndpointUrl) &&
+        !string.IsNullOrWhiteSpace(SharedSecret);
 }
 
 public sealed class BotExperienceAllowConfig

@@ -5,7 +5,10 @@ using OpenMetaverse.Packets;
 
 namespace Munibot;
 
-public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBotSession> logger) : IAsyncDisposable
+public sealed class SecondLifeBotSession(
+    BotConfig config,
+    ILogger<SecondLifeBotSession> logger,
+    IWalletEventPublisher walletEventPublisher) : IAsyncDisposable
 {
     private readonly GridClient _client = new();
     private readonly SemaphoreSlim _groupRosterLock = new(1, 1);
@@ -928,7 +931,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
                         TransactionFlags.None),
                     timeoutCts.Token);
 
-                await using var _ = timeoutCts.Token.Register(() =>
+                await using var walletPaymentReplyTimeoutRegistration = timeoutCts.Token.Register(() =>
                     tcs.TrySetCanceled(timeoutCts.Token));
 
                 var reply = await tcs.Task.ConfigureAwait(false);
@@ -946,6 +949,14 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
                     amount,
                     reply.TransactionID,
                     description.Length);
+
+                _ = PublishWalletEventAsync(WalletEventMapper.FromOutgoingPaymentResult(
+                    reply,
+                    _client.Self.AgentID,
+                    avatarId,
+                    amount,
+                    description,
+                    DateTimeOffset.UtcNow));
 
                 return new WalletPayResultDto(
                     avatarId.ToString(),
@@ -1449,6 +1460,8 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
             logger.LogWarning("Disconnected: {Reason} - {Message}", e.Reason, e.Message);
         };
 
+        _client.Self.MoneyBalanceReply += (_, e) => _ = PublishWalletEventAsync(e);
+
         if (config.Diagnostics.LogSecondLifeEvents)
         {
             _client.Network.RegisterCallback(PacketType.GenericMessage, (_, e) => LogGenericMessage(e));
@@ -1469,6 +1482,53 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
     {
         var values = SecondLifeEventFormatter.Format(eventArgs, config.Diagnostics.MaxLoggedBodyBytes);
         logger.LogInformation("SL event {EventName}: {@EventValues}", eventName, values);
+    }
+
+    private async Task PublishWalletEventAsync(MoneyBalanceReplyEventArgs eventArgs)
+    {
+        try
+        {
+            var walletEvent = WalletEventMapper.FromMoneyBalanceReply(eventArgs, _client.Self.AgentID);
+            if (walletEvent is null)
+            {
+                logger.LogDebug(
+                    "Skipping wallet event delivery for transaction {TransactionId}; event did not contain enough transaction details.",
+                    eventArgs.TransactionID);
+                return;
+            }
+
+            await PublishWalletEventAsync(walletEvent);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Wallet event delivery failed unexpectedly transaction={TransactionId}",
+                eventArgs.TransactionID);
+        }
+    }
+
+    private async Task PublishWalletEventAsync(WalletEventDto walletEvent)
+    {
+        try
+        {
+            var result = await walletEventPublisher.PublishAsync(walletEvent);
+            if (result.Enabled && !result.Delivered)
+            {
+                logger.LogWarning(
+                    "Wallet event delivery did not complete transaction={TransactionId} attempts={Attempts} status={Status}",
+                    walletEvent.TransactionId,
+                    result.Attempts,
+                    result.Status);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Wallet event delivery failed unexpectedly transaction={TransactionId}",
+                walletEvent.TransactionId);
+        }
     }
 
     private void LogGenericMessage(PacketReceivedEventArgs eventArgs)

@@ -211,6 +211,20 @@ Invoke-RestMethod "http://127.0.0.1:5107/api/wallet/account-history?fromUtc=2026
 
 This uses the configured bot `login.password` for the Second Life web account login and requires the `sl.wallet.history` token scope. The endpoint is intended for callback reconciliation and returns transaction id, type, resident, timestamp, ending balance, and inferred adjacent-balance deltas.
 
+Munibot can also forward live Second Life money events into a configured callback. Configure the callback URL and shared secret from a configured callback settings:
+
+```yaml
+munibase:
+  wallet_events:
+    endpoint_url: https://example.com/webhooks/second-life-money
+    shared_secret: replace-with-callback-secret
+    timeout_seconds: 10
+    max_delivery_attempts: 3
+    retry_delay_seconds: 2
+```
+
+The posted payload is Corrade-compatible form data, so the receiving service can use the existing observed-transaction ingestion rules, matching, dedupe, and audit trail while identifying the provider in endpoint logs.
+
 ## Avatar resolution API
 
 Resolve avatar UUIDs to names:

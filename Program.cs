@@ -27,6 +27,15 @@ try
     builder.Services.AddSingleton(botConfig);
     builder.Services.AddSingleton<SecondLifeBotSession>();
     builder.Services.AddSingleton<ISecondLifeAccountHistoryClient, SecondLifeAccountHistoryClient>();
+    if (botConfig.Munibase.WalletEvents.IsConfigured)
+    {
+        builder.Services.AddHttpClient<IWalletEventPublisher, MunibaseWalletEventPublisher>();
+    }
+    else
+    {
+        builder.Services.AddSingleton<IWalletEventPublisher, DisabledWalletEventPublisher>();
+    }
+
     builder.Services.AddHostedService<MunibotHostedService>();
 
     var app = builder.Build();

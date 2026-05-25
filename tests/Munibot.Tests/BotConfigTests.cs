@@ -37,6 +37,13 @@ public sealed class BotConfigTests
             account_history:
               username: Test Resident
               timeout_seconds: 31
+            munibase:
+              wallet_events:
+                endpoint_url: https://example.com/webhooks/second-life-money
+                shared_secret: callback-secret
+                timeout_seconds: 41
+                max_delivery_attempts: 5
+                retry_delay_seconds: 3
             tokens:
               - id: munibase
                 value: token-value
@@ -63,6 +70,11 @@ public sealed class BotConfigTests
         Assert.Equal("Example Region Experience", experience.Name);
         Assert.Equal("Test Resident", config.AccountHistory.Username);
         Assert.Equal(31, config.AccountHistory.TimeoutSeconds);
+        Assert.Equal("https://example.com/webhooks/second-life-money", config.Munibase.WalletEvents.EndpointUrl);
+        Assert.Equal("callback-secret", config.Munibase.WalletEvents.SharedSecret);
+        Assert.Equal(41, config.Munibase.WalletEvents.TimeoutSeconds);
+        Assert.Equal(5, config.Munibase.WalletEvents.MaxDeliveryAttempts);
+        Assert.Equal(3, config.Munibase.WalletEvents.RetryDelaySeconds);
         var token = Assert.Single(config.Tokens);
         Assert.Equal("munibase", token.Id);
         Assert.Equal("token-value", token.Value);
@@ -93,6 +105,10 @@ public sealed class BotConfigTests
     [InlineData("api:\n  texture_upload_timeout_seconds: 0", "api.texture_upload_timeout_seconds")]
     [InlineData("api:\n  wallet_operation_timeout_seconds: 0", "api.wallet_operation_timeout_seconds")]
     [InlineData("account_history:\n  timeout_seconds: 0", "account_history.timeout_seconds")]
+    [InlineData("munibase:\n  wallet_events:\n    timeout_seconds: 0", "munibase.wallet_events.timeout_seconds")]
+    [InlineData("munibase:\n  wallet_events:\n    max_delivery_attempts: 0", "munibase.wallet_events.max_delivery_attempts")]
+    [InlineData("munibase:\n  wallet_events:\n    retry_delay_seconds: -1", "munibase.wallet_events.retry_delay_seconds")]
+    [InlineData("munibase:\n  wallet_events:\n    endpoint_url: https://example.com/webhooks/second-life-money", "munibase.wallet_events.shared_secret")]
     [InlineData("diagnostics:\n  max_logged_body_bytes: -1", "diagnostics.max_logged_body_bytes")]
     [InlineData("experiences:\n  auto_allow:\n    - id: not-a-uuid", "experiences.auto_allow[not-a-uuid].id")]
     public void Load_RejectsInvalidPhaseOneSettings(string yamlFragment, string expectedMessage)
