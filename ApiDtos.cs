@@ -179,6 +179,28 @@ public sealed record AccountHistoryTransactionDto(
     uint EndBalance,
     int? InferredAmountDelta);
 
+public sealed record WalletBalanceDto(
+    int Balance,
+    string AgentId,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
+public sealed record WalletPayRequestDto(
+    string? AvatarId,
+    int? Amount,
+    string? Description,
+    bool? ConfirmPayment);
+
+public sealed record WalletPayResultDto(
+    string AvatarId,
+    int Amount,
+    bool Success,
+    string? TransactionId,
+    int? Balance,
+    string? ResponseDescription,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
 public sealed record AvatarNameResolutionRequestDto(
     List<string> Names);
 

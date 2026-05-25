@@ -183,6 +183,25 @@ Texture upload requires `confirmUploadFee: true` because Second Life charges the
 
 ## Wallet API
 
+Fetch the current in-world Linden balance:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/wallet/balance `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Issue an outgoing avatar payment:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/wallet/pay-avatar `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"avatarId":"<avatar-uuid>","amount":1,"description":"Munibot payment test","confirmPayment":true}'
+```
+
+Payments require `confirmPayment: true` and the `sl.wallet.pay` token scope. Descriptions are sent to Second Life but are not written to Munibot's structured operation log.
+
 Fetch historical Second Life account transactions for the configured bot web account:
 
 ```powershell

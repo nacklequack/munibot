@@ -110,6 +110,11 @@ public sealed class BotConfig
             throw new InvalidOperationException("api.texture_upload_timeout_seconds must be greater than zero.");
         }
 
+        if (Api.WalletOperationTimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException("api.wallet_operation_timeout_seconds must be greater than zero.");
+        }
+
         if (AccountHistory.TimeoutSeconds <= 0)
         {
             throw new InvalidOperationException("account_history.timeout_seconds must be greater than zero.");
@@ -180,6 +185,7 @@ public sealed class BotApiConfig
     public int GroupOperationTimeoutSeconds { get; init; } = 30;
     public int InventoryOperationTimeoutSeconds { get; init; } = 30;
     public int TextureUploadTimeoutSeconds { get; init; } = 60;
+    public int WalletOperationTimeoutSeconds { get; init; } = 30;
 }
 
 public sealed class BotDiagnosticsConfig

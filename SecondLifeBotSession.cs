@@ -15,6 +15,7 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
     private readonly SemaphoreSlim _peopleSearchLock = new(1, 1);
     private readonly SemaphoreSlim _experienceLock = new(1, 1);
     private readonly SemaphoreSlim _inventoryLock = new(1, 1);
+    private readonly SemaphoreSlim _walletLock = new(1, 1);
     private bool _eventsWired;
 
     public bool IsOnline => _client.Network.Connected;
@@ -835,6 +836,143 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         }
     }
 
+    public async Task<WalletBalanceDto> GetWalletBalanceAsync(CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        await _walletLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.WalletOperationTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var requestedAt = DateTimeOffset.UtcNow;
+            var tcs = new TaskCompletionSource<BalanceEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            EventHandler<BalanceEventArgs>? handler = null;
+            handler = (_, e) => tcs.TrySetResult(e);
+
+            try
+            {
+                _client.Self.MoneyBalance += handler;
+
+                await Task.Run(() => _client.Self.RequestBalance(), timeoutCts.Token);
+
+                await using var _ = timeoutCts.Token.Register(() =>
+                    tcs.TrySetCanceled(timeoutCts.Token));
+
+                var reply = await tcs.Task.ConfigureAwait(false);
+
+                logger.LogInformation(
+                    "Fetched wallet balance for agent {AgentId}: balance={Balance}",
+                    _client.Self.AgentID,
+                    reply.Balance);
+
+                return new WalletBalanceDto(
+                    reply.Balance,
+                    _client.Self.AgentID.ToString(),
+                    requestedAt,
+                    DateTimeOffset.UtcNow);
+            }
+            finally
+            {
+                _client.Self.MoneyBalance -= handler;
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life wallet balance after {config.Api.WalletOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _walletLock.Release();
+        }
+    }
+
+    public async Task<WalletPayResultDto> PayAvatarAsync(
+        WalletPayRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var avatarId = WalletRequestValidator.NormalizeAvatarId(request.AvatarId);
+        var amount = WalletRequestValidator.NormalizeAmount(request.Amount);
+        var description = WalletRequestValidator.NormalizeDescription(request.Description);
+        WalletRequestValidator.RequirePaymentConfirmation(request.ConfirmPayment);
+
+        await _walletLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.WalletOperationTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var requestedAt = DateTimeOffset.UtcNow;
+            var tcs = new TaskCompletionSource<MoneyBalanceReplyEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            EventHandler<MoneyBalanceReplyEventArgs>? handler = null;
+            handler = (_, e) => tcs.TrySetResult(e);
+
+            try
+            {
+                _client.Self.MoneyBalanceReply += handler;
+
+                await Task.Run(
+                    () => _client.Self.GiveMoney(
+                        avatarId,
+                        amount,
+                        description,
+                        MoneyTransactionType.Gift,
+                        TransactionFlags.None),
+                    timeoutCts.Token);
+
+                await using var _ = timeoutCts.Token.Register(() =>
+                    tcs.TrySetCanceled(timeoutCts.Token));
+
+                var reply = await tcs.Task.ConfigureAwait(false);
+                if (!reply.Success)
+                {
+                    throw new InvalidOperationException(
+                        string.IsNullOrWhiteSpace(reply.Description)
+                            ? "Second Life rejected the outgoing payment."
+                            : $"Second Life rejected the outgoing payment: {reply.Description}");
+                }
+
+                logger.LogInformation(
+                    "Issued wallet payment to avatar {AvatarId}: amount={Amount} transaction={TransactionId} descriptionLength={DescriptionLength}",
+                    avatarId,
+                    amount,
+                    reply.TransactionID,
+                    description.Length);
+
+                return new WalletPayResultDto(
+                    avatarId.ToString(),
+                    amount,
+                    true,
+                    reply.TransactionID == UUID.Zero ? null : reply.TransactionID.ToString(),
+                    reply.Balance,
+                    string.IsNullOrWhiteSpace(reply.Description) ? null : reply.Description,
+                    requestedAt,
+                    DateTimeOffset.UtcNow);
+            }
+            finally
+            {
+                _client.Self.MoneyBalanceReply -= handler;
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life outgoing payment after {config.Api.WalletOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _walletLock.Release();
+        }
+    }
+
     public async Task<AvatarKeyResolutionResponseDto> ResolveAvatarKeysAsync(
         AvatarKeyResolutionRequestDto request,
         CancellationToken cancellationToken)
@@ -1393,6 +1531,8 @@ public sealed class SecondLifeBotSession(BotConfig config, ILogger<SecondLifeBot
         _avatarLookupLock.Dispose();
         _peopleSearchLock.Dispose();
         _experienceLock.Dispose();
+        _inventoryLock.Dispose();
+        _walletLock.Dispose();
         return ValueTask.CompletedTask;
     }
 }
