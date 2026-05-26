@@ -1579,11 +1579,15 @@ public sealed class SecondLifeBotSession(
     {
         if (!config.Munibase.WalletEvents.IsConfigured)
         {
-            logger.LogDebug(
-                "Wallet balance increased by L${ObservedDelta}, but Munibase wallet event delivery is not configured.",
+            logger.LogWarning(
+                "Wallet balance increased by L${ObservedDelta}, but Munibase wallet event delivery is not configured; skipping treasury callback.",
                 observedDelta);
             return;
         }
+
+        logger.LogInformation(
+            "Wallet balance increased by L${ObservedDelta}; reconciling recent account history for callback callback.",
+            observedDelta);
 
         if (!await _walletHistoryReconcileLock.WaitAsync(0))
         {
