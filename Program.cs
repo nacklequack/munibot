@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Munibot;
@@ -141,10 +142,10 @@ try
     }).RequireMunibotScope(AuthScopes.EstateRead);
 
     app.MapPost("/api/estate/{entryType}/{avatarUuid}", async (
-        string entryType,
-        string avatarUuid,
-        EstateOperationRequestDto request,
-        SecondLifeBotSession session,
+        [FromRoute] string entryType,
+        [FromRoute] string avatarUuid,
+        [FromBody] EstateOperationRequestDto request,
+        [FromServices] SecondLifeBotSession session,
         CancellationToken cancellationToken) =>
     {
         try
@@ -170,41 +171,11 @@ try
         }
     }).RequireMunibotScope(AuthScopes.EstateWrite);
 
-    app.MapDelete("/api/estate/{entryType}/{avatarUuid}", async (
-        string entryType,
-        string avatarUuid,
-        EstateOperationRequestDto request,
-        SecondLifeBotSession session,
-        CancellationToken cancellationToken) =>
-    {
-        try
-        {
-            return Results.Ok(await session.SetEstateListEntryAsync(
-                entryType,
-                avatarUuid,
-                request,
-                EstateListAction.Remove,
-                cancellationToken));
-        }
-        catch (ArgumentException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
-        }
-        catch (TimeoutException ex)
-        {
-            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
-        }
-    }).RequireMunibotScope(AuthScopes.EstateWrite);
-
     app.MapPost("/api/estate/{entryType}/{avatarUuid}:remove", async (
-        string entryType,
-        string avatarUuid,
-        EstateOperationRequestDto request,
-        SecondLifeBotSession session,
+        [FromRoute] string entryType,
+        [FromRoute] string avatarUuid,
+        [FromBody] EstateOperationRequestDto request,
+        [FromServices] SecondLifeBotSession session,
         CancellationToken cancellationToken) =>
     {
         try
