@@ -555,6 +555,23 @@ public sealed class SecondLifeBotSession(
         try
         {
             var requestedAt = DateTimeOffset.UtcNow;
+            if (IsCurrentSimulator(regionName) && IsNearCurrentPosition(position, 3))
+            {
+                logger.LogInformation(
+                    "Teleport request for {RegionName} at {Position} treated as already satisfied; current position={CurrentPosition}",
+                    regionName,
+                    position,
+                    _client.Self.SimPosition);
+
+                return new TeleportResultDto(
+                    true,
+                    regionName,
+                    new Vector3Dto(position.X, position.Y, position.Z),
+                    _client.Network.CurrentSim?.Name,
+                    requestedAt,
+                    DateTimeOffset.UtcNow);
+            }
+
             logger.LogInformation(
                 "Teleporting Munibot to {RegionName} at {Position}",
                 regionName,
@@ -563,7 +580,7 @@ public sealed class SecondLifeBotSession(
             var success = await Task.Run(() => _client.Self.Teleport(regionName, position), cancellationToken);
             if (!success)
             {
-                throw new InvalidOperationException($"Teleport to region '{regionName}' failed.");
+                throw new InvalidOperationException(GetTeleportFailureMessage(regionName));
             }
 
             return new TeleportResultDto(
@@ -1439,6 +1456,14 @@ public sealed class SecondLifeBotSession(
 
     private async Task TeleportToEstateAnchorAsync(string anchorRegion, CancellationToken cancellationToken)
     {
+        if (IsCurrentSimulator(anchorRegion))
+        {
+            logger.LogDebug(
+                "Estate anchor region {AnchorRegion} is already current simulator; skipping anchor teleport.",
+                anchorRegion);
+            return;
+        }
+
         await _teleportLock.WaitAsync(cancellationToken);
         try
         {
@@ -1446,13 +1471,36 @@ public sealed class SecondLifeBotSession(
             var success = await Task.Run(() => _client.Self.Teleport(anchorRegion, position), cancellationToken);
             if (!success)
             {
-                throw new InvalidOperationException($"Teleport to estate anchor region '{anchorRegion}' failed.");
+                throw new InvalidOperationException(GetTeleportFailureMessage(anchorRegion));
             }
         }
         finally
         {
             _teleportLock.Release();
         }
+    }
+
+    private bool IsCurrentSimulator(string regionName)
+        => string.Equals(
+            _client.Network.CurrentSim?.Name,
+            regionName,
+            StringComparison.OrdinalIgnoreCase);
+
+    private bool IsNearCurrentPosition(Vector3 target, float toleranceMeters)
+    {
+        var current = _client.Self.SimPosition;
+        var dx = current.X - target.X;
+        var dy = current.Y - target.Y;
+        var dz = current.Z - target.Z;
+        return dx * dx + dy * dy + dz * dz <= toleranceMeters * toleranceMeters;
+    }
+
+    private string GetTeleportFailureMessage(string regionName)
+    {
+        var message = _client.Self.TeleportMessage;
+        return string.IsNullOrWhiteSpace(message)
+            ? $"Teleport to region '{regionName}' failed."
+            : $"Teleport to region '{regionName}' failed: {message}";
     }
 
     private async Task<IReadOnlyList<UUID>> RequestEstateAllowedUsersAsync(CancellationToken cancellationToken)
