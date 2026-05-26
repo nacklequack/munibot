@@ -116,6 +116,120 @@ try
         }
     }).RequireMunibotScope(AuthScopes.BotTeleport);
 
+    app.MapGet("/api/estate/{entryType}", async (
+        string entryType,
+        string anchorRegion,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.GetEstateListAsync(entryType, anchorRegion, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.EstateRead);
+
+    app.MapPost("/api/estate/{entryType}/{avatarUuid}", async (
+        string entryType,
+        string avatarUuid,
+        EstateOperationRequestDto request,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.SetEstateListEntryAsync(
+                entryType,
+                avatarUuid,
+                request,
+                EstateListAction.Add,
+                cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.EstateWrite);
+
+    app.MapDelete("/api/estate/{entryType}/{avatarUuid}", async (
+        string entryType,
+        string avatarUuid,
+        EstateOperationRequestDto request,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.SetEstateListEntryAsync(
+                entryType,
+                avatarUuid,
+                request,
+                EstateListAction.Remove,
+                cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.EstateWrite);
+
+    app.MapPost("/api/estate/{entryType}/{avatarUuid}:remove", async (
+        string entryType,
+        string avatarUuid,
+        EstateOperationRequestDto request,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.SetEstateListEntryAsync(
+                entryType,
+                avatarUuid,
+                request,
+                EstateListAction.Remove,
+                cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.EstateWrite);
+
     app.MapPost("/api/ims", async (
         SendInstantMessageRequestDto request,
         SecondLifeBotSession session,

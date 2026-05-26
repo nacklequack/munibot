@@ -25,6 +25,7 @@ public sealed class BotConfigTests
               inventory_operation_timeout_seconds: 23
               texture_upload_timeout_seconds: 29
               wallet_operation_timeout_seconds: 37
+              estate_operation_timeout_seconds: 43
             diagnostics:
               log_api_calls: true
               log_api_bodies: true
@@ -66,6 +67,7 @@ public sealed class BotConfigTests
         Assert.Equal(23, config.Api.InventoryOperationTimeoutSeconds);
         Assert.Equal(29, config.Api.TextureUploadTimeoutSeconds);
         Assert.Equal(37, config.Api.WalletOperationTimeoutSeconds);
+        Assert.Equal(43, config.Api.EstateOperationTimeoutSeconds);
         Assert.True(config.Diagnostics.LogApiBodies);
         Assert.False(config.Diagnostics.LogSecondLifeEvents);
         var experience = Assert.Single(config.Experiences.AutoAllow);
@@ -110,6 +112,7 @@ public sealed class BotConfigTests
     [InlineData("api:\n  inventory_operation_timeout_seconds: 0", "api.inventory_operation_timeout_seconds")]
     [InlineData("api:\n  texture_upload_timeout_seconds: 0", "api.texture_upload_timeout_seconds")]
     [InlineData("api:\n  wallet_operation_timeout_seconds: 0", "api.wallet_operation_timeout_seconds")]
+    [InlineData("api:\n  estate_operation_timeout_seconds: 0", "api.estate_operation_timeout_seconds")]
     [InlineData("account_history:\n  timeout_seconds: 0", "account_history.timeout_seconds")]
     [InlineData("munibase:\n  wallet_events:\n    timeout_seconds: 0", "munibase.wallet_events.timeout_seconds")]
     [InlineData("munibase:\n  wallet_events:\n    max_delivery_attempts: 0", "munibase.wallet_events.max_delivery_attempts")]

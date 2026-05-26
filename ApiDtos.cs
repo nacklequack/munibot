@@ -95,6 +95,31 @@ public sealed record TeleportResultDto(
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
 
+public sealed record EstateListDto(
+    string EntryType,
+    string AnchorRegion,
+    int EntryCount,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt,
+    IReadOnlyList<EstateListEntryDto> Entries);
+
+public sealed record EstateListEntryDto(
+    string AvatarId);
+
+public sealed record EstateOperationRequestDto(
+    string? AnchorRegion,
+    bool? AllEstates);
+
+public sealed record EstateOperationResultDto(
+    string EntryType,
+    string Action,
+    string AvatarId,
+    string AnchorRegion,
+    bool AllEstates,
+    bool Success,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
 public sealed record SendInstantMessageRequestDto(
     string? AvatarId,
     string? Message);

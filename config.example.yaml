@@ -30,6 +30,7 @@ api:
   inventory_operation_timeout_seconds: 30
   texture_upload_timeout_seconds: 60
   wallet_operation_timeout_seconds: 30
+  estate_operation_timeout_seconds: 30
 
 account_history:
   # Optional. Defaults to login first_name + last_name when omitted.

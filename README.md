@@ -295,3 +295,39 @@ Read an avatar's role names:
 Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members/<avatar-uuid>/roles `
   -Headers @{ "X-Munibot-Token" = "<token>" }
 ```
+
+## Estate security API
+
+Estate list operations teleport the bot to an anchor region first so Second Life applies the correct estate context. The bot account must have the appropriate estate manager powers.
+
+Read estate allowed users or banned users:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:5107/api/estate/allow?anchorRegion=Example Region" `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:5107/api/estate/ban?anchorRegion=Example Region" `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Add an avatar to the estate allow or ban list:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/estate/ban/<avatar-uuid> `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"anchorRegion":"Example Region","allEstates":false}'
+```
+
+Remove an avatar from the estate allow or ban list:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/estate/ban/<avatar-uuid>:remove `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"anchorRegion":"Example Region","allEstates":false}'
+```

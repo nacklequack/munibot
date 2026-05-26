@@ -20,6 +20,7 @@ public sealed class SecondLifeBotSession(
     private readonly SemaphoreSlim _experienceLock = new(1, 1);
     private readonly SemaphoreSlim _inventoryLock = new(1, 1);
     private readonly SemaphoreSlim _walletLock = new(1, 1);
+    private readonly SemaphoreSlim _estateLock = new(1, 1);
     private readonly SemaphoreSlim _walletHistoryReconcileLock = new(1, 1);
     private readonly object _walletBalanceStateLock = new();
     private readonly object _walletEventTransactionLock = new();
@@ -1305,6 +1306,199 @@ public sealed class SecondLifeBotSession(
                 "Second Life experience preferences are not available in the current simulator.");
     }
 
+    public async Task<EstateListDto> GetEstateListAsync(
+        string entryType,
+        string anchorRegion,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var normalizedEntryType = EstateRequestValidator.NormalizeEntryType(entryType);
+        var normalizedAnchorRegion = EstateRequestValidator.NormalizeAnchorRegion(anchorRegion);
+
+        await _estateLock.WaitAsync(cancellationToken);
+        try
+        {
+            var requestedAt = DateTimeOffset.UtcNow;
+            var timeout = TimeSpan.FromSeconds(config.Api.EstateOperationTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            await TeleportToEstateAnchorAsync(normalizedAnchorRegion, timeoutCts.Token);
+
+            var entries = normalizedEntryType == EstateListEntryType.Allow
+                ? await RequestEstateAllowedUsersAsync(timeoutCts.Token)
+                : await RequestEstateBannedUsersAsync(timeoutCts.Token);
+
+            var ordered = entries
+                .Where(id => id != UUID.Zero)
+                .Select(id => new EstateListEntryDto(id.ToString()))
+                .OrderBy(entry => entry.AvatarId, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            logger.LogInformation(
+                "Fetched estate {EntryType} list via anchor region {AnchorRegion}: entries={EntryCount}",
+                EstateRequestValidator.ToWireValue(normalizedEntryType),
+                normalizedAnchorRegion,
+                ordered.Count);
+
+            return new EstateListDto(
+                EstateRequestValidator.ToWireValue(normalizedEntryType),
+                normalizedAnchorRegion,
+                ordered.Count,
+                requestedAt,
+                DateTimeOffset.UtcNow,
+                ordered);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life estate list after {config.Api.EstateOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _estateLock.Release();
+        }
+    }
+
+    public async Task<EstateOperationResultDto> SetEstateListEntryAsync(
+        string entryType,
+        string avatarUuid,
+        EstateOperationRequestDto request,
+        EstateListAction action,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var normalizedEntryType = EstateRequestValidator.NormalizeEntryType(entryType);
+        var avatarId = EstateRequestValidator.NormalizeAvatarId(avatarUuid);
+        var anchorRegion = EstateRequestValidator.NormalizeAnchorRegion(request.AnchorRegion);
+        var allEstates = request.AllEstates == true;
+
+        await _estateLock.WaitAsync(cancellationToken);
+        try
+        {
+            var requestedAt = DateTimeOffset.UtcNow;
+            var timeout = TimeSpan.FromSeconds(config.Api.EstateOperationTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            await TeleportToEstateAnchorAsync(anchorRegion, timeoutCts.Token);
+
+            if (normalizedEntryType == EstateListEntryType.Allow)
+            {
+                if (action == EstateListAction.Add)
+                {
+                    _client.Estate.AddAllowedUser(avatarId, allEstates);
+                }
+                else
+                {
+                    _client.Estate.RemoveAllowedUser(avatarId, allEstates);
+                }
+            }
+            else
+            {
+                if (action == EstateListAction.Add)
+                {
+                    _client.Estate.BanUser(avatarId, allEstates);
+                }
+                else
+                {
+                    _client.Estate.UnbanUser(avatarId, allEstates);
+                }
+            }
+
+            logger.LogInformation(
+                "Issued estate {EntryType} {Action} for avatar {AvatarId} via anchor region {AnchorRegion}; allEstates={AllEstates}",
+                EstateRequestValidator.ToWireValue(normalizedEntryType),
+                EstateRequestValidator.ToWireValue(action),
+                avatarId,
+                anchorRegion,
+                allEstates);
+
+            return new EstateOperationResultDto(
+                EstateRequestValidator.ToWireValue(normalizedEntryType),
+                EstateRequestValidator.ToWireValue(action),
+                avatarId.ToString(),
+                anchorRegion,
+                allEstates,
+                true,
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life estate operation after {config.Api.EstateOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _estateLock.Release();
+        }
+    }
+
+    private async Task TeleportToEstateAnchorAsync(string anchorRegion, CancellationToken cancellationToken)
+    {
+        await _teleportLock.WaitAsync(cancellationToken);
+        try
+        {
+            var position = new Vector3(128, 128, 25);
+            var success = await Task.Run(() => _client.Self.Teleport(anchorRegion, position), cancellationToken);
+            if (!success)
+            {
+                throw new InvalidOperationException($"Teleport to estate anchor region '{anchorRegion}' failed.");
+            }
+        }
+        finally
+        {
+            _teleportLock.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<UUID>> RequestEstateAllowedUsersAsync(CancellationToken cancellationToken)
+    {
+        var tcs = new TaskCompletionSource<EstateUsersReplyEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        EventHandler<EstateUsersReplyEventArgs>? handler = null;
+        handler = (_, e) => tcs.TrySetResult(e);
+
+        try
+        {
+            _client.Estate.EstateUsersReply += handler;
+            _client.Estate.RequestInfo();
+
+            await using var _ = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
+            var reply = await tcs.Task.ConfigureAwait(false);
+            return reply.AllowedUsers;
+        }
+        finally
+        {
+            _client.Estate.EstateUsersReply -= handler;
+        }
+    }
+
+    private async Task<IReadOnlyList<UUID>> RequestEstateBannedUsersAsync(CancellationToken cancellationToken)
+    {
+        var tcs = new TaskCompletionSource<EstateBansReplyEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        EventHandler<EstateBansReplyEventArgs>? handler = null;
+        handler = (_, e) => tcs.TrySetResult(e);
+
+        try
+        {
+            _client.Estate.EstateBansReply += handler;
+            _client.Estate.RequestInfo();
+
+            await using var _ = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
+            var reply = await tcs.Task.ConfigureAwait(false);
+            return reply.Banned;
+        }
+        finally
+        {
+            _client.Estate.EstateBansReply -= handler;
+        }
+    }
+
     private async Task<IReadOnlyList<AvatarSearchCandidateDto>> SearchAvatarPickerAsync(
         string avatarName,
         CancellationToken cancellationToken)
@@ -1901,6 +2095,7 @@ public sealed class SecondLifeBotSession(
         _experienceLock.Dispose();
         _inventoryLock.Dispose();
         _walletLock.Dispose();
+        _estateLock.Dispose();
         return ValueTask.CompletedTask;
     }
 }
