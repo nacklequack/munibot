@@ -1997,7 +1997,17 @@ public sealed class SecondLifeBotSession(
                     observedAtUtc);
             }
 
-            await PublishWalletEventAsync(eventArgs);
+            if (delta is > 0)
+            {
+                await PublishWalletEventAsync(eventArgs);
+            }
+            else
+            {
+                logger.LogDebug(
+                    "Skipping wallet balance reply delivery for transaction={TransactionId}; delta={Delta} is not a positive incoming balance change.",
+                    eventArgs.TransactionID,
+                    delta);
+            }
         }
         catch (Exception ex)
         {
