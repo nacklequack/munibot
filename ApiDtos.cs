@@ -170,6 +170,25 @@ public sealed record InventoryGiveResultDto(
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
 
+public sealed record InventoryRezRequestDto(
+    string? ItemId,
+    string? ItemPath,
+    string? Region,
+    Vector3Dto? Position,
+    int? Count,
+    bool? ConfirmRez);
+
+public sealed record InventoryRezResultDto(
+    string ItemId,
+    string ItemName,
+    string Region,
+    Vector3Dto Position,
+    int Count,
+    IReadOnlyList<string> RequestIds,
+    bool Success,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
 public sealed record TextureUploadRequestDto(
     string? Name,
     string? Description,

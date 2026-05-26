@@ -321,6 +321,33 @@ try
         }
     }).RequireMunibotScope(AuthScopes.InventoryGive);
 
+    app.MapPost("/api/inventory/rez", async (
+        InventoryRezRequestDto request,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.RezInventoryItemAsync(request, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return Results.NotFound(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.InventoryRez);
+
     app.MapPost("/api/textures", async (
         TextureUploadRequestDto request,
         SecondLifeBotSession session,

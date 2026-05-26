@@ -87,6 +87,7 @@ tokens:
       - sl.localchat.send
       - sl.texture.upload
       - sl.inventory.give
+      - sl.inventory.rez
       - sl.wallet.read
       - sl.wallet.history
       - sl.wallet.pay

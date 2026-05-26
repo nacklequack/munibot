@@ -169,6 +169,18 @@ Invoke-RestMethod http://127.0.0.1:5107/api/inventory/give `
 
 If the item is not already loaded in the bot's inventory cache, include `itemName` and `assetType` so Second Life has the metadata needed for delivery.
 
+Rez an object inventory item into the bot's current simulator, or teleport first when `region` is supplied:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/inventory/rez `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"itemPath":"My Inventory/Example Region Coastline Properties/Example Region Unclaimed Property","region":"Example Region","position":{"x":109.796,"y":59.8726,"z":28.2283},"count":5,"confirmRez":true}'
+```
+
+Inventory rez requires the `sl.inventory.rez` scope and `confirmRez: true`. Munibot returns the generated Second Life rez request IDs; the rezzed object will complete its normal in-world registration flow through its scripts.
+
 Upload a texture asset into the bot's Textures folder:
 
 ```powershell

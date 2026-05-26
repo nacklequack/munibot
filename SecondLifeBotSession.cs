@@ -788,6 +788,104 @@ public sealed class SecondLifeBotSession(
         }
     }
 
+    public async Task<InventoryRezResultDto> RezInventoryItemAsync(
+        InventoryRezRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        EnsureOnline();
+
+        var itemId = InventoryRequestValidator.NormalizeItemId(request.ItemId);
+        var itemPath = InventoryRequestValidator.NormalizeItemPath(request.ItemPath);
+        var position = TeleportRequestValidator.NormalizePosition(request.Position);
+        var count = InventoryRequestValidator.NormalizeRezCount(request.Count);
+        InventoryRequestValidator.RequireRezConfirmation(request.ConfirmRez);
+
+        if (!itemId.HasValue && itemPath is null)
+        {
+            throw new ArgumentException("Either itemId or itemPath is required.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Region) && !IsCurrentSimulator(request.Region.Trim()))
+        {
+            await TeleportAsync(new TeleportRequestDto(request.Region, request.Position), cancellationToken);
+        }
+
+        await _inventoryLock.WaitAsync(cancellationToken);
+        try
+        {
+            var timeout = TimeSpan.FromSeconds(config.Api.InventoryOperationTimeoutSeconds);
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+
+            var requestedAt = DateTimeOffset.UtcNow;
+            var item = await ResolveInventoryItemAsync(
+                itemId,
+                itemPath,
+                fallbackItemName: null,
+                fallbackAssetType: null,
+                timeout,
+                timeoutCts.Token);
+
+            if (item.AssetType != AssetType.Object && item.InventoryType != InventoryType.Object)
+            {
+                throw new ArgumentException(
+                    $"Inventory item '{item.Name}' is {item.AssetType}/{item.InventoryType}; only object inventory can be rezzed.");
+            }
+
+            var simulator = _client.Network.CurrentSim
+                ?? throw new InvalidOperationException("Second Life simulator is not available.");
+            var region = simulator.Name ?? CurrentSimulator ?? "unknown";
+            var requestIds = new List<string>(count);
+
+            await Task.Run(() =>
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    var queryId = UUID.Random();
+                    var returnedQueryId = _client.Inventory.RequestRezFromInventory(
+                        simulator,
+                        UUID.Zero,
+                        Quaternion.Identity,
+                        position,
+                        item,
+                        _client.Self.ActiveGroup,
+                        queryId,
+                        rezSelected: false);
+
+                    requestIds.Add(returnedQueryId.ToString());
+                }
+            }, timeoutCts.Token);
+
+            logger.LogInformation(
+                "Issued inventory rez item={ItemId} name={ItemName} count={Count} region={Region} position={Position}",
+                item.UUID,
+                item.Name,
+                count,
+                region,
+                position);
+
+            return new InventoryRezResultDto(
+                item.UUID.ToString(),
+                item.Name,
+                region,
+                new Vector3Dto(position.X, position.Y, position.Z),
+                count,
+                requestIds,
+                true,
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out waiting for Second Life inventory rez after {config.Api.InventoryOperationTimeoutSeconds} seconds.");
+        }
+        finally
+        {
+            _inventoryLock.Release();
+        }
+    }
+
     public async Task<TextureUploadResultDto> UploadTextureAsync(
         TextureUploadRequestDto request,
         CancellationToken cancellationToken)

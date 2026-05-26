@@ -6,6 +6,7 @@ public static class InventoryRequestValidator
 {
     public const int MaxItemNameLength = 63;
     public const int MaxItemPathLength = 512;
+    public const int MaxRezCount = 50;
 
     public static UUID NormalizeAvatarId(string? avatarId)
     {
@@ -86,4 +87,23 @@ public static class InventoryRequestValidator
 
     public static bool NormalizeDoEffect(bool? doEffect)
         => doEffect ?? true;
+
+    public static int NormalizeRezCount(int? count)
+    {
+        var normalized = count ?? 1;
+        if (normalized < 1 || normalized > MaxRezCount)
+        {
+            throw new ArgumentException($"Inventory rez count must be between 1 and {MaxRezCount}.");
+        }
+
+        return normalized;
+    }
+
+    public static void RequireRezConfirmation(bool? confirmRez)
+    {
+        if (confirmRez != true)
+        {
+            throw new ArgumentException("confirmRez must be true before Munibot rezzes inventory into Second Life.");
+        }
+    }
 }
