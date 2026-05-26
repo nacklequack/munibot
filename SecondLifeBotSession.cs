@@ -23,7 +23,7 @@ public sealed class SecondLifeBotSession(
     private readonly SemaphoreSlim _walletHistoryReconcileLock = new(1, 1);
     private readonly object _walletBalanceStateLock = new();
     private readonly object _walletEventTransactionLock = new();
-    private readonly HashSet<string> _publishedWalletEventTransactionIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _deliveredWalletEventTransactionIds = new(StringComparer.OrdinalIgnoreCase);
     private int? _lastObservedWalletBalance;
     private bool _eventsWired;
 
@@ -1541,8 +1541,6 @@ public sealed class SecondLifeBotSession(
                 previousBalance,
                 delta);
 
-            await PublishWalletEventAsync(eventArgs);
-
             if (previousBalance.HasValue && delta is > 0)
             {
                 await ReconcileWalletBalanceIncreaseAsync(
@@ -1551,6 +1549,8 @@ public sealed class SecondLifeBotSession(
                     delta.Value,
                     observedAtUtc);
             }
+
+            await PublishWalletEventAsync(eventArgs);
         }
         catch (Exception ex)
         {
@@ -1664,7 +1664,7 @@ public sealed class SecondLifeBotSession(
         var published = 0;
         foreach (var transaction in candidates)
         {
-            if (HasPublishedWalletTransaction(transaction.TransactionId))
+            if (HasDeliveredWalletTransaction(transaction.TransactionId))
             {
                 continue;
             }
@@ -1777,7 +1777,7 @@ public sealed class SecondLifeBotSession(
     {
         try
         {
-            if (!TryRememberWalletTransaction(walletEvent.TransactionId))
+            if (HasDeliveredWalletTransaction(walletEvent.TransactionId))
             {
                 logger.LogDebug(
                     "Skipping duplicate wallet event delivery transaction={TransactionId}",
@@ -1786,6 +1786,11 @@ public sealed class SecondLifeBotSession(
             }
 
             var result = await walletEventPublisher.PublishAsync(walletEvent);
+            if (result.Delivered)
+            {
+                RememberDeliveredWalletTransaction(walletEvent.TransactionId);
+            }
+
             if (result.Enabled && !result.Delivered)
             {
                 logger.LogWarning(
@@ -1804,7 +1809,7 @@ public sealed class SecondLifeBotSession(
         }
     }
 
-    private bool HasPublishedWalletTransaction(string? transactionId)
+    private bool HasDeliveredWalletTransaction(string? transactionId)
     {
         if (string.IsNullOrWhiteSpace(transactionId))
         {
@@ -1813,20 +1818,20 @@ public sealed class SecondLifeBotSession(
 
         lock (_walletEventTransactionLock)
         {
-            return _publishedWalletEventTransactionIds.Contains(transactionId.Trim());
+            return _deliveredWalletEventTransactionIds.Contains(transactionId.Trim());
         }
     }
 
-    private bool TryRememberWalletTransaction(string? transactionId)
+    private void RememberDeliveredWalletTransaction(string? transactionId)
     {
         if (string.IsNullOrWhiteSpace(transactionId))
         {
-            return true;
+            return;
         }
 
         lock (_walletEventTransactionLock)
         {
-            return _publishedWalletEventTransactionIds.Add(transactionId.Trim());
+            _deliveredWalletEventTransactionIds.Add(transactionId.Trim());
         }
     }
 
