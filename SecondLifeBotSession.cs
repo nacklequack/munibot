@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using OpenMetaverse;
 using OpenMetaverse.Messages.Linden;
 using OpenMetaverse.Packets;
+using OpenMetaverse.StructuredData;
 
 namespace Munibot;
 
@@ -822,31 +823,32 @@ public sealed class SecondLifeBotSession(
 
             await RefreshUploadCostBenefitsAsync(timeoutCts.Token);
 
+            var uploadPrice = _client.Settings.UPLOAD_COST;
             var result = await CreateTextureInventoryItemAsync(
                 data,
                 name,
                 description,
                 folderId,
+                uploadPrice,
                 timeoutCts.Token);
 
             var rawResult = Redaction.RedactText(result.RawResult?.ToString() ?? string.Empty);
             var serverExpectedUploadPrice = TextureUploadCostMismatch.TryGetExpectedUploadPrice(rawResult);
             if (!result.Success && serverExpectedUploadPrice is { } expectedUploadPrice)
             {
-                var previousUploadCost = _client.Settings.UPLOAD_COST;
-                SetUploadCost(expectedUploadPrice);
-
                 logger.LogWarning(
-                    "Second Life reported texture upload price mismatch name={TextureName} clientUploadCost={ClientUploadCost} serverExpectedUploadPrice={ServerExpectedUploadPrice}; retrying once with server expected price.",
+                    "Second Life reported texture upload price mismatch name={TextureName} clientUploadCost={ClientUploadCost} serverExpectedUploadPrice={ServerExpectedUploadPrice}; retrying once with server expected price. This is the upload capability handshake price, not proof that the account was charged.",
                     name,
-                    previousUploadCost,
+                    uploadPrice,
                     expectedUploadPrice);
 
+                uploadPrice = expectedUploadPrice;
                 result = await CreateTextureInventoryItemAsync(
                     data,
                     name,
                     description,
                     folderId,
+                    uploadPrice,
                     timeoutCts.Token);
             }
 
@@ -893,7 +895,7 @@ public sealed class SecondLifeBotSession(
                 true,
                 result.Status,
                 data.Length,
-                _client.Settings.UPLOAD_COST,
+                uploadPrice,
                 requestedAt,
                 DateTimeOffset.UtcNow);
         }
@@ -908,22 +910,132 @@ public sealed class SecondLifeBotSession(
         }
     }
 
-    private Task<InventoryManager.CreateItemFromAssetResult> CreateTextureInventoryItemAsync(
+    private async Task<InventoryManager.CreateItemFromAssetResult> CreateTextureInventoryItemAsync(
         byte[] data,
         string name,
         string description,
         UUID folderId,
+        int uploadPrice,
         CancellationToken cancellationToken)
-        => _client.Inventory.CreateItemFromAssetAsync(
-            data,
-            name,
-            description,
-            AssetType.Texture,
-            InventoryType.Texture,
-            folderId,
-            Permissions.FullPermissions,
-            cancellationToken,
-            progress: null);
+    {
+        var result = new InventoryManager.CreateItemFromAssetResult
+        {
+            Success = false,
+            Status = string.Empty,
+            ItemID = UUID.Zero,
+            AssetID = UUID.Zero
+        };
+
+        var cap = _client.Network.CurrentSim?.Caps?.CapabilityURI("NewFileAgentInventory");
+        if (cap is null)
+        {
+            result.Status = "capability_missing";
+            result.Error = new InvalidOperationException("NewFileAgentInventory capability is not currently available");
+            return result;
+        }
+
+        var query = new OSDMap
+        {
+            ["folder_id"] = OSD.FromUUID(folderId),
+            ["asset_type"] = OSD.FromString(Utils.AssetTypeToString(AssetType.Texture)),
+            ["inventory_type"] = OSD.FromString(Utils.InventoryTypeToString(InventoryType.Texture)),
+            ["name"] = OSD.FromString(name),
+            ["description"] = OSD.FromString(description),
+            ["everyone_mask"] = OSD.FromInteger((int)Permissions.FullPermissions.EveryoneMask),
+            ["group_mask"] = OSD.FromInteger((int)Permissions.FullPermissions.GroupMask),
+            ["next_owner_mask"] = OSD.FromInteger((int)Permissions.FullPermissions.NextOwnerMask),
+            ["expected_upload_cost"] = OSD.FromInteger(uploadPrice),
+            ["expected_upload_price"] = OSD.FromInteger(uploadPrice),
+            ["upload_price"] = OSD.FromInteger(uploadPrice)
+        };
+
+        try
+        {
+            var response = await _client.HttpCapsClient.PostAsync(
+                cap,
+                OSDFormat.Xml,
+                query,
+                cancellationToken);
+
+            var osd = OSDParser.Deserialize(response.data);
+            result.RawResult = osd;
+
+            if (osd is not OSDMap contents)
+            {
+                result.Status = "invalid_response";
+                return result;
+            }
+
+            var status = contents.TryGetValue("state", out var state)
+                ? state.AsString().ToLowerInvariant()
+                : string.Empty;
+            result.Status = status;
+
+            if (status == "upload")
+            {
+                var uploadUrl = contents.TryGetValue("uploader", out var uploader)
+                    ? uploader.AsString()
+                    : null;
+                if (string.IsNullOrWhiteSpace(uploadUrl))
+                {
+                    result.Status = "missing_uploader_url";
+                    return result;
+                }
+
+                var uploadResponse = await _client.HttpCapsClient.PostAsync(
+                    new Uri(uploadUrl),
+                    "application/octet-stream",
+                    data,
+                    cancellationToken);
+
+                var uploadOsd = OSDParser.Deserialize(uploadResponse.data);
+                result.RawResult = uploadOsd;
+
+                if (uploadOsd is OSDMap uploadContents)
+                {
+                    contents = uploadContents;
+                    status = contents.TryGetValue("state", out state)
+                        ? state.AsString().ToLowerInvariant()
+                        : status;
+                    result.Status = status;
+                }
+            }
+
+            if (status != "complete")
+            {
+                return result;
+            }
+
+            if (!contents.TryGetValue("new_inventory_item", out var itemId) ||
+                !contents.TryGetValue("new_asset", out var assetId))
+            {
+                result.Status = "missing_ids";
+                return result;
+            }
+
+            result.ItemID = itemId.AsUUID();
+            result.AssetID = assetId.AsUUID();
+            result.Success = true;
+
+            try
+            {
+                _client.Inventory.RequestFetchInventory(result.ItemID, _client.Self.AgentID, cancellationToken);
+            }
+            catch
+            {
+                // Best effort local inventory cache refresh.
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Error = ex;
+            result.Status = ex.Message;
+            return result;
+        }
+    }
 
     private async Task RefreshUploadCostBenefitsAsync(CancellationToken cancellationToken)
     {
@@ -953,20 +1065,6 @@ public sealed class SecondLifeBotSession(
                 "Failed to refresh Second Life viewer benefits before texture upload; continuing with current upload cost {UploadCost}.",
                 _client.Settings.UPLOAD_COST);
         }
-    }
-
-    private void SetUploadCost(int uploadCost)
-    {
-        var setter = typeof(Settings)
-            .GetProperty(nameof(Settings.UPLOAD_COST))
-            ?.GetSetMethod(nonPublic: true);
-
-        if (setter is null)
-        {
-            throw new InvalidOperationException("LibreMetaverse upload-cost setter is not available.");
-        }
-
-        setter.Invoke(_client.Settings, [uploadCost]);
     }
 
     public async Task<WalletBalanceDto> GetWalletBalanceAsync(CancellationToken cancellationToken)

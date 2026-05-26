@@ -87,7 +87,7 @@ public static class TextureUploadRequestValidator
         if (confirmUploadFee != true)
         {
             throw new ArgumentException(
-                "Texture uploads charge the bot account's Second Life upload fee; confirmUploadFee must be true.");
+                "Texture uploads may charge the bot account's Second Life upload fee depending on account benefits; confirmUploadFee must be true.");
         }
     }
 }

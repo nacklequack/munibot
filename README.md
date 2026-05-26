@@ -179,7 +179,7 @@ Invoke-RestMethod http://127.0.0.1:5107/api/textures `
   -Body '{"name":"Example Region Poster","description":"Uploaded by Munibot","textureDataBase64":"<sl-ready-jpeg2000-base64>","confirmUploadFee":true}'
 ```
 
-Texture upload requires `confirmUploadFee: true` because Second Life charges the bot account's upload fee. The first implementation expects SL-ready texture asset bytes, typically JPEG2000, encoded as base64.
+Texture upload requires `confirmUploadFee: true` because Second Life may charge the bot account's upload fee depending on account benefits. Munibot echoes the upload capability's expected price during the SL handshake, but wallet/balance events are the source of truth for whether L$ were actually deducted. The first implementation expects SL-ready texture asset bytes, typically JPEG2000, encoded as base64.
 
 ## Wallet API
 
