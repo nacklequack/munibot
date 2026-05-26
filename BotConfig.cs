@@ -168,6 +168,14 @@ public sealed class BotConfig
             throw new InvalidOperationException("diagnostics.max_logged_body_bytes cannot be negative.");
         }
 
+        if (!Enum.TryParse<Microsoft.Extensions.Logging.LogLevel>(
+                Diagnostics.LogLevel,
+                ignoreCase: true,
+                out _))
+        {
+            throw new InvalidOperationException("diagnostics.log_level must be a valid Microsoft.Extensions.Logging log level.");
+        }
+
         foreach (var experience in Experiences.AutoAllow)
         {
             if (string.IsNullOrWhiteSpace(experience.Id))
@@ -234,6 +242,7 @@ public sealed class BotApiConfig
 
 public sealed class BotDiagnosticsConfig
 {
+    public string LogLevel { get; init; } = "Information";
     public bool LogApiCalls { get; init; } = true;
     public bool LogApiBodies { get; init; }
     public bool LogSecondLifeEvents { get; init; } = true;

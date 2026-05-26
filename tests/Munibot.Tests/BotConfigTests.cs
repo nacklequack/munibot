@@ -27,6 +27,7 @@ public sealed class BotConfigTests
               wallet_operation_timeout_seconds: 37
               estate_operation_timeout_seconds: 43
             diagnostics:
+              log_level: Debug
               log_api_calls: true
               log_api_bodies: true
               log_second_life_events: false
@@ -68,6 +69,7 @@ public sealed class BotConfigTests
         Assert.Equal(29, config.Api.TextureUploadTimeoutSeconds);
         Assert.Equal(37, config.Api.WalletOperationTimeoutSeconds);
         Assert.Equal(43, config.Api.EstateOperationTimeoutSeconds);
+        Assert.Equal("Debug", config.Diagnostics.LogLevel);
         Assert.True(config.Diagnostics.LogApiBodies);
         Assert.False(config.Diagnostics.LogSecondLifeEvents);
         var experience = Assert.Single(config.Experiences.AutoAllow);
@@ -122,6 +124,7 @@ public sealed class BotConfigTests
     [InlineData("munibase:\n  wallet_events:\n    history_reconcile_delay_seconds: -1", "munibase.wallet_events.history_reconcile_delay_seconds")]
     [InlineData("munibase:\n  wallet_events:\n    endpoint_url: https://example.com/webhooks/second-life-money", "munibase.wallet_events.shared_secret")]
     [InlineData("diagnostics:\n  max_logged_body_bytes: -1", "diagnostics.max_logged_body_bytes")]
+    [InlineData("diagnostics:\n  log_level: VerbosePlease", "diagnostics.log_level")]
     [InlineData("experiences:\n  auto_allow:\n    - id: not-a-uuid", "experiences.auto_allow[not-a-uuid].id")]
     public void Load_RejectsInvalidPhaseOneSettings(string yamlFragment, string expectedMessage)
     {

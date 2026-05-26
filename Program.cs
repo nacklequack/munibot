@@ -21,6 +21,7 @@ try
         options.SingleLine = true;
         options.TimestampFormat = "yyyy-MM-dd HH:mm:ss ";
     });
+    builder.Logging.SetMinimumLevel(ParseLogLevel(botConfig.Diagnostics.LogLevel));
     builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
     builder.Logging.AddFilter("Microsoft.AspNetCore.Routing.EndpointMiddleware", LogLevel.Warning);
     builder.Logging.AddFilter("Microsoft.AspNetCore.Http.Result", LogLevel.Warning);
@@ -323,8 +324,10 @@ try
     app.MapPost("/api/textures", async (
         TextureUploadRequestDto request,
         SecondLifeBotSession session,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken) =>
     {
+        var endpointLogger = loggerFactory.CreateLogger("Munibot.TextureUploadEndpoint");
         try
         {
             return Results.Ok(await session.UploadTextureAsync(request, cancellationToken));
@@ -335,6 +338,12 @@ try
         }
         catch (InvalidOperationException ex)
         {
+            endpointLogger.LogWarning(
+                ex,
+                "Texture upload failed name={TextureName} base64Length={Base64Length} contentType={ContentType}",
+                Redaction.RedactText(request.Name ?? string.Empty),
+                request.TextureDataBase64?.Length ?? 0,
+                Redaction.RedactText(request.TextureDataContentType ?? string.Empty));
             return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
         }
         catch (TimeoutException ex)
@@ -663,3 +672,8 @@ catch (Exception ex) when (ex is not OperationCanceledException)
     Console.Error.WriteLine($"Munibot startup failed: {ex.Message}");
     return 1;
 }
+
+static LogLevel ParseLogLevel(string? value)
+    => Enum.TryParse<LogLevel>(value, ignoreCase: true, out var level)
+        ? level
+        : LogLevel.Information;

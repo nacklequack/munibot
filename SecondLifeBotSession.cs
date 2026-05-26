@@ -812,6 +812,14 @@ public sealed class SecondLifeBotSession(
                 throw new InvalidOperationException("Second Life did not expose a valid texture inventory folder.");
             }
 
+            logger.LogDebug(
+                "Starting texture upload name={TextureName} bytes={ByteCount} folder={FolderId} simulator={Simulator} agent={AgentId}",
+                name,
+                data.Length,
+                folderId,
+                CurrentSimulator ?? "unknown",
+                AgentId);
+
             var result = await _client.Inventory.CreateItemFromAssetAsync(
                 data,
                 name,
@@ -828,18 +836,36 @@ public sealed class SecondLifeBotSession(
                 var status = string.IsNullOrWhiteSpace(result.Status)
                     ? result.Error?.Message ?? "unknown error"
                     : result.Status;
+                var rawResult = Redaction.RedactText(result.RawResult?.ToString() ?? string.Empty);
+                var itemId = result.ItemID.ToString();
+                var assetId = result.AssetID.ToString();
+
+                logger.LogWarning(
+                    result.Error,
+                    "Second Life texture upload failed name={TextureName} status={Status} item={ItemId} asset={AssetId} rawResult={RawResult} errorType={ErrorType} errorMessage={ErrorMessage}",
+                    name,
+                    Redaction.RedactText(status),
+                    itemId,
+                    assetId,
+                    rawResult,
+                    result.Error?.GetType().FullName ?? "none",
+                    Redaction.RedactText(result.Error?.Message ?? string.Empty));
 
                 throw result.Error is null
-                    ? new InvalidOperationException($"Second Life texture upload failed: {status}")
-                    : new InvalidOperationException($"Second Life texture upload failed: {status}", result.Error);
+                    ? new InvalidOperationException(
+                        $"Second Life texture upload failed: {status}; item={itemId}; asset={assetId}; raw={rawResult}")
+                    : new InvalidOperationException(
+                        $"Second Life texture upload failed: {status}; item={itemId}; asset={assetId}; raw={rawResult}",
+                        result.Error);
             }
 
             logger.LogInformation(
-                "Uploaded texture {TextureName} item={ItemId} asset={AssetId} bytes={ByteCount}",
+                "Uploaded texture {TextureName} item={ItemId} asset={AssetId} bytes={ByteCount} status={Status}",
                 name,
                 result.ItemID,
                 result.AssetID,
-                data.Length);
+                data.Length,
+                Redaction.RedactText(result.Status ?? string.Empty));
 
             return new TextureUploadResultDto(
                 result.ItemID.ToString(),

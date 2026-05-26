@@ -174,6 +174,7 @@ public sealed record TextureUploadRequestDto(
     string? Name,
     string? Description,
     string? TextureDataBase64,
+    string? TextureDataContentType,
     bool? ConfirmUploadFee);
 
 public sealed record TextureUploadResultDto(
