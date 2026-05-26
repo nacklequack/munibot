@@ -51,4 +51,34 @@ public sealed class TextureUploadRequestValidatorTests
 
         Assert.Contains("confirmUploadFee", ex.Message);
     }
+
+    [Fact]
+    public void TryGetExpectedUploadPrice_ReadsSecondLifeMismatchResponse()
+    {
+        const string rawResult = """
+            {
+              "message": "The server expects a different upload fee",
+              "state": "failure",
+              "error": {
+                "message": "The server expects a different upload fee",
+                "identifier": "Upload_UploadPriceDiffers",
+                "upload_price": 0,
+                "expected_upload_price": 10
+              }
+            }
+            """;
+
+        var expectedUploadPrice = TextureUploadCostMismatch.TryGetExpectedUploadPrice(rawResult);
+
+        Assert.Equal(10, expectedUploadPrice);
+    }
+
+    [Fact]
+    public void TryGetExpectedUploadPrice_IgnoresUnrelatedFailure()
+    {
+        var expectedUploadPrice = TextureUploadCostMismatch.TryGetExpectedUploadPrice(
+            """{"state":"failure","error":{"identifier":"Other"}}""");
+
+        Assert.Null(expectedUploadPrice);
+    }
 }

@@ -820,23 +820,42 @@ public sealed class SecondLifeBotSession(
                 CurrentSimulator ?? "unknown",
                 AgentId);
 
-            var result = await _client.Inventory.CreateItemFromAssetAsync(
+            await RefreshUploadCostBenefitsAsync(timeoutCts.Token);
+
+            var result = await CreateTextureInventoryItemAsync(
                 data,
                 name,
                 description,
-                AssetType.Texture,
-                InventoryType.Texture,
                 folderId,
-                Permissions.FullPermissions,
-                timeoutCts.Token,
-                progress: null);
+                timeoutCts.Token);
+
+            var rawResult = Redaction.RedactText(result.RawResult?.ToString() ?? string.Empty);
+            var serverExpectedUploadPrice = TextureUploadCostMismatch.TryGetExpectedUploadPrice(rawResult);
+            if (!result.Success && serverExpectedUploadPrice is { } expectedUploadPrice)
+            {
+                var previousUploadCost = _client.Settings.UPLOAD_COST;
+                SetUploadCost(expectedUploadPrice);
+
+                logger.LogWarning(
+                    "Second Life reported texture upload price mismatch name={TextureName} clientUploadCost={ClientUploadCost} serverExpectedUploadPrice={ServerExpectedUploadPrice}; retrying once with server expected price.",
+                    name,
+                    previousUploadCost,
+                    expectedUploadPrice);
+
+                result = await CreateTextureInventoryItemAsync(
+                    data,
+                    name,
+                    description,
+                    folderId,
+                    timeoutCts.Token);
+            }
 
             if (!result.Success)
             {
                 var status = string.IsNullOrWhiteSpace(result.Status)
                     ? result.Error?.Message ?? "unknown error"
                     : result.Status;
-                var rawResult = Redaction.RedactText(result.RawResult?.ToString() ?? string.Empty);
+                rawResult = Redaction.RedactText(result.RawResult?.ToString() ?? string.Empty);
                 var itemId = result.ItemID.ToString();
                 var assetId = result.AssetID.ToString();
 
@@ -874,7 +893,7 @@ public sealed class SecondLifeBotSession(
                 true,
                 result.Status,
                 data.Length,
-                TextureUploadRequestValidator.ExpectedTextureUploadCostLinden,
+                _client.Settings.UPLOAD_COST,
                 requestedAt,
                 DateTimeOffset.UtcNow);
         }
@@ -887,6 +906,67 @@ public sealed class SecondLifeBotSession(
         {
             _inventoryLock.Release();
         }
+    }
+
+    private Task<InventoryManager.CreateItemFromAssetResult> CreateTextureInventoryItemAsync(
+        byte[] data,
+        string name,
+        string description,
+        UUID folderId,
+        CancellationToken cancellationToken)
+        => _client.Inventory.CreateItemFromAssetAsync(
+            data,
+            name,
+            description,
+            AssetType.Texture,
+            InventoryType.Texture,
+            folderId,
+            Permissions.FullPermissions,
+            cancellationToken,
+            progress: null);
+
+    private async Task RefreshUploadCostBenefitsAsync(CancellationToken cancellationToken)
+    {
+        var uploadCostBefore = _client.Settings.UPLOAD_COST;
+
+        try
+        {
+            var viewerBenefits = await _client.Self.GetViewerBenefitsAsync(cancellationToken);
+            var benefits = _client.Self.Benefits;
+
+            logger.LogInformation(
+                "Second Life upload-cost state textureUploadCost={TextureUploadCost} largeTextureUploadCosts={LargeTextureUploadCosts} settingsUploadCostBefore={SettingsUploadCostBefore} settingsUploadCostAfter={SettingsUploadCostAfter} viewerBenefitsAvailable={ViewerBenefitsAvailable}",
+                benefits.TextureUploadCost,
+                string.Join(",", benefits.LargeTextureUploadCost),
+                uploadCostBefore,
+                _client.Settings.UPLOAD_COST,
+                viewerBenefits is not null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to refresh Second Life viewer benefits before texture upload; continuing with current upload cost {UploadCost}.",
+                _client.Settings.UPLOAD_COST);
+        }
+    }
+
+    private void SetUploadCost(int uploadCost)
+    {
+        var setter = typeof(Settings)
+            .GetProperty(nameof(Settings.UPLOAD_COST))
+            ?.GetSetMethod(nonPublic: true);
+
+        if (setter is null)
+        {
+            throw new InvalidOperationException("LibreMetaverse upload-cost setter is not available.");
+        }
+
+        setter.Invoke(_client.Settings, [uploadCost]);
     }
 
     public async Task<WalletBalanceDto> GetWalletBalanceAsync(CancellationToken cancellationToken)
