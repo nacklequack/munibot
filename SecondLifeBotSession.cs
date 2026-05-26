@@ -984,7 +984,7 @@ public sealed class SecondLifeBotSession(
 
                 var uploadResponse = await _client.HttpCapsClient.PostAsync(
                     new Uri(uploadUrl),
-                    "application/octet-stream",
+                    LibreMetaverse.HttpCapsClient.LLSD_XML,
                     data,
                     cancellationToken);
 
