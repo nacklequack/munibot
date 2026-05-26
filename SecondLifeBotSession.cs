@@ -833,16 +833,17 @@ public sealed class SecondLifeBotSession(
                 timeoutCts.Token);
 
             var rawResult = Redaction.RedactText(result.RawResult?.ToString() ?? string.Empty);
-            var serverExpectedUploadPrice = TextureUploadCostMismatch.TryGetExpectedUploadPrice(rawResult);
-            if (!result.Success && serverExpectedUploadPrice is { } expectedUploadPrice)
+            var uploadCostMismatch = TextureUploadCostMismatch.TryParse(rawResult);
+            if (!result.Success && uploadCostMismatch?.UploadPrice is { } reportedUploadPrice)
             {
                 logger.LogWarning(
-                    "Second Life reported texture upload price mismatch name={TextureName} clientUploadCost={ClientUploadCost} serverExpectedUploadPrice={ServerExpectedUploadPrice}; retrying once with server expected price. This is the upload capability handshake price, not proof that the account was charged.",
+                    "Second Life reported texture upload price mismatch name={TextureName} clientUploadCost={ClientUploadCost} reportedUploadPrice={ReportedUploadPrice} reportedExpectedUploadPrice={ReportedExpectedUploadPrice}; retrying once with reported upload price. This is the upload capability handshake price, not proof that the account was charged.",
                     name,
                     uploadPrice,
-                    expectedUploadPrice);
+                    reportedUploadPrice,
+                    uploadCostMismatch.ExpectedUploadPrice);
 
-                uploadPrice = expectedUploadPrice;
+                uploadPrice = reportedUploadPrice;
                 result = await CreateTextureInventoryItemAsync(
                     data,
                     name,

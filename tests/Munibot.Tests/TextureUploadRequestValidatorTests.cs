@@ -53,7 +53,7 @@ public sealed class TextureUploadRequestValidatorTests
     }
 
     [Fact]
-    public void TryGetExpectedUploadPrice_ReadsSecondLifeMismatchResponse()
+    public void TryParse_ReadsSecondLifeMismatchResponse()
     {
         const string rawResult = """
             {
@@ -68,17 +68,19 @@ public sealed class TextureUploadRequestValidatorTests
             }
             """;
 
-        var expectedUploadPrice = TextureUploadCostMismatch.TryGetExpectedUploadPrice(rawResult);
+        var mismatch = TextureUploadCostMismatch.TryParse(rawResult);
 
-        Assert.Equal(10, expectedUploadPrice);
+        Assert.NotNull(mismatch);
+        Assert.Equal(0, mismatch.UploadPrice);
+        Assert.Equal(10, mismatch.ExpectedUploadPrice);
     }
 
     [Fact]
-    public void TryGetExpectedUploadPrice_IgnoresUnrelatedFailure()
+    public void TryParse_IgnoresUnrelatedFailure()
     {
-        var expectedUploadPrice = TextureUploadCostMismatch.TryGetExpectedUploadPrice(
+        var mismatch = TextureUploadCostMismatch.TryParse(
             """{"state":"failure","error":{"identifier":"Other"}}""");
 
-        Assert.Null(expectedUploadPrice);
+        Assert.Null(mismatch);
     }
 }

@@ -6,7 +6,7 @@ public static class TextureUploadCostMismatch
 {
     public const string Identifier = "Upload_UploadPriceDiffers";
 
-    public static int? TryGetExpectedUploadPrice(string? rawResult)
+    public static TextureUploadCostMismatchResult? TryParse(string? rawResult)
     {
         if (string.IsNullOrWhiteSpace(rawResult) ||
             rawResult.IndexOf(Identifier, StringComparison.OrdinalIgnoreCase) < 0)
@@ -19,23 +19,42 @@ public static class TextureUploadCostMismatch
             using var document = JsonDocument.Parse(rawResult);
             var root = document.RootElement;
 
-            if (TryGetInt32(root, "expected_upload_price", out var rootPrice))
+            int? uploadPrice = null;
+            int? expectedUploadPrice = null;
+
+            if (TryGetInt32(root, "upload_price", out var rootUploadPrice))
             {
-                return rootPrice;
+                uploadPrice = rootUploadPrice;
             }
 
             if (root.TryGetProperty("error", out var error) &&
-                TryGetInt32(error, "expected_upload_price", out var errorPrice))
+                TryGetInt32(error, "upload_price", out var errorUploadPrice))
             {
-                return errorPrice;
+                uploadPrice = errorUploadPrice;
             }
+
+            if (TryGetInt32(root, "expected_upload_price", out var rootExpectedUploadPrice))
+            {
+                expectedUploadPrice = rootExpectedUploadPrice;
+            }
+
+            if (root.TryGetProperty("error", out error) &&
+                TryGetInt32(error, "expected_upload_price", out var errorExpectedUploadPrice))
+            {
+                expectedUploadPrice = errorExpectedUploadPrice;
+            }
+
+            if (uploadPrice is null && expectedUploadPrice is null)
+            {
+                return null;
+            }
+
+            return new TextureUploadCostMismatchResult(uploadPrice, expectedUploadPrice);
         }
         catch (JsonException)
         {
             return null;
         }
-
-        return null;
     }
 
     private static bool TryGetInt32(JsonElement element, string propertyName, out int value)
@@ -60,3 +79,7 @@ public static class TextureUploadCostMismatch
         return false;
     }
 }
+
+public sealed record TextureUploadCostMismatchResult(
+    int? UploadPrice,
+    int? ExpectedUploadPrice);
