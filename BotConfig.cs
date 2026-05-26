@@ -136,6 +136,21 @@ public sealed class BotConfig
             throw new InvalidOperationException("munibase.wallet_events.retry_delay_seconds cannot be negative.");
         }
 
+        if (Munibase.WalletEvents.HistoryLookbackMinutes <= 0)
+        {
+            throw new InvalidOperationException("munibase.wallet_events.history_lookback_minutes must be greater than zero.");
+        }
+
+        if (Munibase.WalletEvents.HistoryReconcileAttempts <= 0)
+        {
+            throw new InvalidOperationException("munibase.wallet_events.history_reconcile_attempts must be greater than zero.");
+        }
+
+        if (Munibase.WalletEvents.HistoryReconcileDelaySeconds < 0)
+        {
+            throw new InvalidOperationException("munibase.wallet_events.history_reconcile_delay_seconds cannot be negative.");
+        }
+
         if (!string.IsNullOrWhiteSpace(Munibase.WalletEvents.EndpointUrl) &&
             string.IsNullOrWhiteSpace(Munibase.WalletEvents.SharedSecret))
         {
@@ -242,6 +257,9 @@ public sealed class BotMunibaseWalletEventsConfig
     public int TimeoutSeconds { get; init; } = 10;
     public int MaxDeliveryAttempts { get; init; } = 3;
     public int RetryDelaySeconds { get; init; } = 2;
+    public int HistoryLookbackMinutes { get; init; } = 10;
+    public int HistoryReconcileAttempts { get; init; } = 3;
+    public int HistoryReconcileDelaySeconds { get; init; } = 5;
 
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(EndpointUrl) &&

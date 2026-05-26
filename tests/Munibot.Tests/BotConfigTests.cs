@@ -44,6 +44,9 @@ public sealed class BotConfigTests
                 timeout_seconds: 41
                 max_delivery_attempts: 5
                 retry_delay_seconds: 3
+                history_lookback_minutes: 13
+                history_reconcile_attempts: 4
+                history_reconcile_delay_seconds: 6
             tokens:
               - id: munibase
                 value: token-value
@@ -75,6 +78,9 @@ public sealed class BotConfigTests
         Assert.Equal(41, config.Munibase.WalletEvents.TimeoutSeconds);
         Assert.Equal(5, config.Munibase.WalletEvents.MaxDeliveryAttempts);
         Assert.Equal(3, config.Munibase.WalletEvents.RetryDelaySeconds);
+        Assert.Equal(13, config.Munibase.WalletEvents.HistoryLookbackMinutes);
+        Assert.Equal(4, config.Munibase.WalletEvents.HistoryReconcileAttempts);
+        Assert.Equal(6, config.Munibase.WalletEvents.HistoryReconcileDelaySeconds);
         var token = Assert.Single(config.Tokens);
         Assert.Equal("munibase", token.Id);
         Assert.Equal("token-value", token.Value);
@@ -108,6 +114,9 @@ public sealed class BotConfigTests
     [InlineData("munibase:\n  wallet_events:\n    timeout_seconds: 0", "munibase.wallet_events.timeout_seconds")]
     [InlineData("munibase:\n  wallet_events:\n    max_delivery_attempts: 0", "munibase.wallet_events.max_delivery_attempts")]
     [InlineData("munibase:\n  wallet_events:\n    retry_delay_seconds: -1", "munibase.wallet_events.retry_delay_seconds")]
+    [InlineData("munibase:\n  wallet_events:\n    history_lookback_minutes: 0", "munibase.wallet_events.history_lookback_minutes")]
+    [InlineData("munibase:\n  wallet_events:\n    history_reconcile_attempts: 0", "munibase.wallet_events.history_reconcile_attempts")]
+    [InlineData("munibase:\n  wallet_events:\n    history_reconcile_delay_seconds: -1", "munibase.wallet_events.history_reconcile_delay_seconds")]
     [InlineData("munibase:\n  wallet_events:\n    endpoint_url: https://example.com/webhooks/second-life-money", "munibase.wallet_events.shared_secret")]
     [InlineData("diagnostics:\n  max_logged_body_bytes: -1", "diagnostics.max_logged_body_bytes")]
     [InlineData("experiences:\n  auto_allow:\n    - id: not-a-uuid", "experiences.auto_allow[not-a-uuid].id")]

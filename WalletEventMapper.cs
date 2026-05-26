@@ -101,6 +101,39 @@ public static class WalletEventMapper
             string.IsNullOrWhiteSpace(reply.Description) ? description : reply.Description,
             occurredAtUtc);
 
+    public static WalletEventDto? FromAccountHistoryTransaction(
+        AccountHistoryTransactionDto transaction,
+        string? sourceAvatarUuid,
+        UUID botAgentId,
+        int observedDelta)
+    {
+        if (string.IsNullOrWhiteSpace(transaction.TransactionId) ||
+            string.IsNullOrWhiteSpace(sourceAvatarUuid))
+        {
+            return null;
+        }
+
+        var amount = transaction.InferredAmountDelta is > 0
+            ? transaction.InferredAmountDelta.Value
+            : observedDelta;
+
+        if (amount <= 0)
+        {
+            return null;
+        }
+
+        return new WalletEventDto(
+            true,
+            transaction.EndBalance > int.MaxValue ? null : (int)transaction.EndBalance,
+            amount,
+            transaction.TransactionId.Trim(),
+            sourceAvatarUuid.Trim(),
+            botAgentId.ToString(),
+            transaction.Type,
+            transaction.Description,
+            transaction.OccurredAtUtc);
+    }
+
     private static string? ReadUuidString(object? source, params string[] names)
     {
         var value = ReadMemberValue(source, names);

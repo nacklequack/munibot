@@ -46,6 +46,11 @@ munibase:
     timeout_seconds: 10
     max_delivery_attempts: 3
     retry_delay_seconds: 2
+    # When Second Life only reports a balance increase, Munibot reconciles recent
+    # account history and publishes matching incoming payments to Munibase.
+    history_lookback_minutes: 10
+    history_reconcile_attempts: 3
+    history_reconcile_delay_seconds: 5
 
 diagnostics:
   log_api_calls: true
