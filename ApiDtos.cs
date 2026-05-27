@@ -95,6 +95,44 @@ public sealed record TeleportResultDto(
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
 
+public sealed record NearbyObjectScanResultDto(
+    string Simulator,
+    Vector3Dto Origin,
+    float Radius,
+    int ObjectCount,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt,
+    IReadOnlyList<NearbyObjectDto> Objects);
+
+public sealed record NearbyObjectDto(
+    string ObjectId,
+    uint LocalId,
+    string? Name,
+    string? Description,
+    string? OwnerId,
+    string? GroupId,
+    Vector3Dto Position,
+    Vector3Dto Scale,
+    float Distance,
+    bool IsAttachment,
+    uint ParentId,
+    string? Text);
+
+public sealed record ObjectInteractRequestDto(
+    string? Action,
+    Vector3Dto? SitOffset);
+
+public sealed record ObjectInteractResultDto(
+    string ObjectId,
+    uint LocalId,
+    string Action,
+    string? Name,
+    Vector3Dto Position,
+    float Distance,
+    bool Success,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
 public sealed record EstateListDto(
     string EntryType,
     string AnchorRegion,

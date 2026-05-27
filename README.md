@@ -141,6 +141,31 @@ Invoke-RestMethod http://127.0.0.1:5107/api/local-chat `
   -Body '{"message":"Hello from Munibot","channel":0,"chatType":"normal"}'
 ```
 
+Scan nearby visible objects around the bot. Radius defaults to 5 meters and can be filtered by object name:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:5107/api/objects/nearby?radius=5&name=chair" `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Touch or sit on a visible object by UUID:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/objects/<object-uuid>/interactions `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"action":"touch"}'
+
+Invoke-RestMethod http://127.0.0.1:5107/api/objects/<object-uuid>/interactions `
+  -Method Post `
+  -ContentType "application/json" `
+  -Headers @{ "X-Munibot-Token" = "<token>" } `
+  -Body '{"action":"sit","sitOffset":{"x":0,"y":0,"z":0}}'
+```
+
+Object scanning requires `sl.object.scan`; object touch/sit requires `sl.object.interact`.
+
 ## Inventory and texture API
 
 Look up an inventory item by UUID:

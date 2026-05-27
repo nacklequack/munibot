@@ -118,6 +118,46 @@ try
         }
     }).RequireMunibotScope(AuthScopes.BotTeleport);
 
+    app.MapGet("/api/objects/nearby", async (
+        [FromQuery] float? radius,
+        [FromQuery] string? name,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.ScanNearbyObjectsAsync(radius, name, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireMunibotScope(AuthScopes.ObjectScan);
+
+    app.MapPost("/api/objects/{objectUuid}/interactions", async (
+        string objectUuid,
+        [FromBody] ObjectInteractRequestDto request,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.InteractWithObjectAsync(objectUuid, request, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    }).RequireMunibotScope(AuthScopes.ObjectInteract);
+
     app.MapGet("/api/estate/{entryType}", async (
         string entryType,
         string anchorRegion,

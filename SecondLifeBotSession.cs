@@ -20,6 +20,7 @@ public sealed class SecondLifeBotSession(
     private readonly SemaphoreSlim _peopleSearchLock = new(1, 1);
     private readonly SemaphoreSlim _experienceLock = new(1, 1);
     private readonly SemaphoreSlim _inventoryLock = new(1, 1);
+    private readonly SemaphoreSlim _objectInteractionLock = new(1, 1);
     private readonly SemaphoreSlim _walletLock = new(1, 1);
     private readonly SemaphoreSlim _estateLock = new(1, 1);
     private readonly SemaphoreSlim _walletHistoryReconcileLock = new(1, 1);
@@ -595,6 +596,133 @@ public sealed class SecondLifeBotSession(
         finally
         {
             _teleportLock.Release();
+        }
+    }
+
+    public async Task<NearbyObjectScanResultDto> ScanNearbyObjectsAsync(
+        float? radius,
+        string? name,
+        CancellationToken cancellationToken)
+    {
+        var normalizedRadius = ObjectInteractionRequestValidator.NormalizeScanRadius(radius);
+        var nameFilter = ObjectInteractionRequestValidator.NormalizeNameFilter(name);
+        EnsureOnline();
+
+        await _objectInteractionLock.WaitAsync(cancellationToken);
+        try
+        {
+            var requestedAt = DateTimeOffset.UtcNow;
+            var simulator = _client.Network.CurrentSim
+                ?? throw new InvalidOperationException("Current simulator is not available.");
+            var origin = _client.Self.SimPosition;
+
+            var objects = simulator.ObjectsPrimitives
+                .Values
+                .Where(prim =>
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (prim.ID == UUID.Zero || prim.Position == Vector3.Zero)
+                    {
+                        return false;
+                    }
+
+                    var distance = Vector3.Distance(origin, prim.Position);
+                    if (distance > normalizedRadius)
+                    {
+                        return false;
+                    }
+
+                    if (nameFilter is null)
+                    {
+                        return true;
+                    }
+
+                    var objectName = prim.Properties?.Name;
+                    return !string.IsNullOrWhiteSpace(objectName) &&
+                           objectName.Contains(nameFilter, StringComparison.OrdinalIgnoreCase);
+                })
+                .Select(prim => ToNearbyObjectDto(prim, origin))
+                .OrderBy(prim => prim.Distance)
+                .ThenBy(prim => prim.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            logger.LogInformation(
+                "Scanned nearby objects simulator={Simulator} radius={Radius} nameFilter={NameFilter} count={Count}",
+                simulator.Name,
+                normalizedRadius,
+                nameFilter ?? "(none)",
+                objects.Count);
+
+            return new NearbyObjectScanResultDto(
+                simulator.Name,
+                new Vector3Dto(origin.X, origin.Y, origin.Z),
+                normalizedRadius,
+                objects.Count,
+                requestedAt,
+                DateTimeOffset.UtcNow,
+                objects);
+        }
+        finally
+        {
+            _objectInteractionLock.Release();
+        }
+    }
+
+    public async Task<ObjectInteractResultDto> InteractWithObjectAsync(
+        string objectUuid,
+        ObjectInteractRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var objectId = ObjectInteractionRequestValidator.NormalizeObjectId(objectUuid);
+        var action = ObjectInteractionRequestValidator.NormalizeAction(request.Action);
+        var sitOffset = ObjectInteractionRequestValidator.NormalizeSitOffset(request.SitOffset);
+        EnsureOnline();
+
+        await _objectInteractionLock.WaitAsync(cancellationToken);
+        try
+        {
+            var requestedAt = DateTimeOffset.UtcNow;
+            var simulator = _client.Network.CurrentSim
+                ?? throw new InvalidOperationException("Current simulator is not available.");
+            var primitive = FindPrimitive(simulator, objectId)
+                ?? throw new InvalidOperationException($"Object {objectId} is not currently visible to the bot in simulator {simulator.Name}.");
+            var origin = _client.Self.SimPosition;
+
+            switch (action)
+            {
+                case "sit":
+                    _client.Self.RequestSit(objectId, sitOffset);
+                    await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+                    _client.Self.Sit();
+                    break;
+                case "touch":
+                    await _client.Objects.ClickObjectAsync(simulator, primitive.LocalID, cancellationToken);
+                    break;
+            }
+
+            logger.LogInformation(
+                "Issued object interaction action={Action} object={ObjectId} localId={LocalId} name={Name} distance={Distance:F2}",
+                action,
+                objectId,
+                primitive.LocalID,
+                primitive.Properties?.Name ?? "(unknown)",
+                Vector3.Distance(origin, primitive.Position));
+
+            return new ObjectInteractResultDto(
+                objectId.ToString(),
+                primitive.LocalID,
+                action,
+                primitive.Properties?.Name,
+                new Vector3Dto(primitive.Position.X, primitive.Position.Y, primitive.Position.Z),
+                Vector3.Distance(origin, primitive.Position),
+                true,
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            _objectInteractionLock.Release();
         }
     }
 
@@ -1796,6 +1924,30 @@ public sealed class SecondLifeBotSession(
         var dy = current.Y - target.Y;
         var dz = current.Z - target.Z;
         return dx * dx + dy * dy + dz * dz <= toleranceMeters * toleranceMeters;
+    }
+
+    private static Primitive? FindPrimitive(Simulator simulator, UUID objectId)
+        => simulator.ObjectsPrimitives.Values.FirstOrDefault(prim => prim.ID == objectId);
+
+    private static NearbyObjectDto ToNearbyObjectDto(Primitive primitive, Vector3 origin)
+    {
+        var position = primitive.Position;
+        var scale = primitive.Scale;
+        var properties = primitive.Properties;
+
+        return new NearbyObjectDto(
+            primitive.ID.ToString(),
+            primitive.LocalID,
+            properties?.Name,
+            properties?.Description,
+            primitive.OwnerID == UUID.Zero ? null : primitive.OwnerID.ToString(),
+            primitive.GroupID == UUID.Zero ? null : primitive.GroupID.ToString(),
+            new Vector3Dto(position.X, position.Y, position.Z),
+            new Vector3Dto(scale.X, scale.Y, scale.Z),
+            Vector3.Distance(origin, position),
+            primitive.IsAttachment,
+            primitive.ParentID,
+            string.IsNullOrWhiteSpace(primitive.Text) ? null : primitive.Text);
     }
 
     private string GetTeleportFailureMessage(string regionName)

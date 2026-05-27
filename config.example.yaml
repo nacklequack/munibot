@@ -85,6 +85,8 @@ tokens:
       - sl.avatar.resolve
       - sl.im.send
       - sl.localchat.send
+      - sl.object.scan
+      - sl.object.interact
       - sl.texture.upload
       - sl.inventory.give
       - sl.inventory.rez
