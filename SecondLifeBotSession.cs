@@ -423,6 +423,107 @@ public sealed class SecondLifeBotSession(
             DateTimeOffset.UtcNow);
     }
 
+    public async Task<GroupRolesDto> GetGroupRolesAsync(
+        string groupUuid,
+        CancellationToken cancellationToken)
+    {
+        var groupId = GroupRequestValidator.NormalizeGroupId(groupUuid);
+        EnsureOnline();
+
+        var requestedAt = DateTimeOffset.UtcNow;
+        var roles = await GetGroupRolesByIdAsync(groupId, cancellationToken);
+        var roleDtos = roles.Values
+            .OrderBy(role => role.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(role => role.ID.ToString(), StringComparer.OrdinalIgnoreCase)
+            .Select(role => new GroupRoleDto(
+                role.ID.ToString(),
+                role.Name ?? string.Empty,
+                role.Title ?? string.Empty,
+                string.IsNullOrWhiteSpace(role.Description) ? null : role.Description,
+                role.Powers.ToString(),
+                checked((int)role.Members)))
+            .ToList();
+
+        return new GroupRolesDto(
+            groupId.ToString(),
+            roleDtos.Count,
+            requestedAt,
+            DateTimeOffset.UtcNow,
+            roleDtos);
+    }
+
+    public async Task<GroupRoleMemberOperationResultDto> AddGroupRoleMemberAsync(
+        string groupUuid,
+        string roleUuid,
+        string avatarUuid,
+        CancellationToken cancellationToken)
+        => await ExecuteGroupRoleMemberActionAsync(
+            groupUuid,
+            roleUuid,
+            avatarUuid,
+            "add",
+            (groupId, roleId, avatarId) => _client.Groups.AddToRole(groupId, roleId, avatarId),
+            cancellationToken);
+
+    public async Task<GroupRoleMemberOperationResultDto> RemoveGroupRoleMemberAsync(
+        string groupUuid,
+        string roleUuid,
+        string avatarUuid,
+        CancellationToken cancellationToken)
+        => await ExecuteGroupRoleMemberActionAsync(
+            groupUuid,
+            roleUuid,
+            avatarUuid,
+            "remove",
+            (groupId, roleId, avatarId) => _client.Groups.RemoveFromRole(groupId, roleId, avatarId),
+            cancellationToken);
+
+    private async Task<GroupRoleMemberOperationResultDto> ExecuteGroupRoleMemberActionAsync(
+        string groupUuid,
+        string roleUuid,
+        string avatarUuid,
+        string operation,
+        Action<UUID, UUID, UUID> action,
+        CancellationToken cancellationToken)
+    {
+        var groupId = GroupRequestValidator.NormalizeGroupId(groupUuid);
+        var roleId = GroupRequestValidator.NormalizeRoleId(roleUuid);
+        var avatarId = GroupRequestValidator.NormalizeAvatarId(avatarUuid);
+        EnsureOnline();
+
+        await _groupOperationLock.WaitAsync(cancellationToken);
+        try
+        {
+            var requestedAt = DateTimeOffset.UtcNow;
+            var roles = await GetGroupRolesByIdAsync(groupId, cancellationToken);
+            if (!roles.ContainsKey(roleId))
+            {
+                throw new InvalidOperationException($"Second Life group role '{roleId}' was not found in group '{groupId}'.");
+            }
+
+            action(groupId, roleId, avatarId);
+            logger.LogInformation(
+                "Issued group role {Operation} for avatar {AvatarId} role {RoleId} group {GroupId}",
+                operation,
+                avatarId,
+                roleId,
+                groupId);
+
+            return new GroupRoleMemberOperationResultDto(
+                groupId.ToString(),
+                roleId.ToString(),
+                avatarId.ToString(),
+                operation,
+                true,
+                requestedAt,
+                DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            _groupOperationLock.Release();
+        }
+    }
+
     private async Task<GroupOperationResultDto> ExecuteGroupBanActionAsync(
         string groupUuid,
         string avatarUuid,

@@ -52,6 +52,23 @@ public sealed class GroupRequestValidatorTests
     }
 
     [Fact]
+    public void NormalizeRoleId_ParsesRoleUuid()
+    {
+        var parsed = GroupRequestValidator.NormalizeRoleId($" {GroupId} ");
+
+        Assert.Equal(GroupId, parsed.ToString());
+    }
+
+    [Fact]
+    public void NormalizeRoleId_RejectsZeroRole()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            GroupRequestValidator.NormalizeRoleId(UUID.Zero.ToString()));
+
+        Assert.Contains("group role UUID", ex.Message);
+    }
+
+    [Fact]
     public void NormalizeRoleIds_DeduplicatesRoles()
     {
         var roleIds = GroupRequestValidator.NormalizeRoleIds([GroupId, GroupId.ToUpperInvariant()]);

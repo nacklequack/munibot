@@ -55,6 +55,30 @@ public sealed record GroupMemberRolesDto(
     DateTimeOffset RequestedAt,
     DateTimeOffset CompletedAt);
 
+public sealed record GroupRolesDto(
+    string GroupId,
+    int RoleCount,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt,
+    IReadOnlyList<GroupRoleDto> Roles);
+
+public sealed record GroupRoleDto(
+    string RoleId,
+    string Name,
+    string Title,
+    string? Description,
+    string Powers,
+    int MemberCount);
+
+public sealed record GroupRoleMemberOperationResultDto(
+    string GroupId,
+    string RoleId,
+    string AvatarId,
+    string Operation,
+    bool Success,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset CompletedAt);
+
 public sealed record HealthDto(
     bool Online,
     string? AgentId,

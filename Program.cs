@@ -731,6 +731,79 @@ try
         }
     }).RequireMunibotScope(AuthScopes.GroupRolesRead);
 
+    app.MapGet("/api/groups/{groupUuid}/roles", async (
+        string groupUuid,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.GetGroupRolesAsync(groupUuid, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.GroupRolesRead);
+
+    app.MapPost("/api/groups/{groupUuid}/roles/{roleUuid}/members/{avatarUuid}", async (
+        string groupUuid,
+        string roleUuid,
+        string avatarUuid,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.AddGroupRoleMemberAsync(groupUuid, roleUuid, avatarUuid, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.GroupRolesWrite);
+
+    app.MapDelete("/api/groups/{groupUuid}/roles/{roleUuid}/members/{avatarUuid}", async (
+        string groupUuid,
+        string roleUuid,
+        string avatarUuid,
+        SecondLifeBotSession session,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await session.RemoveGroupRoleMemberAsync(groupUuid, roleUuid, avatarUuid, cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (TimeoutException ex)
+        {
+            return Results.Problem(ex.Message, statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+    }).RequireMunibotScope(AuthScopes.GroupRolesWrite);
+
     await app.RunAsync();
     return 0;
 }

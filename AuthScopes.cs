@@ -8,6 +8,7 @@ public static class AuthScopes
     public const string GroupBanRead = "sl.group.ban.read";
     public const string GroupBanWrite = "sl.group.ban.write";
     public const string GroupRolesRead = "sl.group.roles.read";
+    public const string GroupRolesWrite = "sl.group.roles.write";
     public const string AvatarResolve = "sl.avatar.resolve";
     public const string ImSend = "sl.im.send";
     public const string LocalChatSend = "sl.localchat.send";

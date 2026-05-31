@@ -333,6 +333,27 @@ Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members/<avatar-
   -Headers @{ "X-Munibot-Token" = "<token>" }
 ```
 
+Read a group's role catalog:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/roles `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Assign or remove a member from a role:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/roles/<role-uuid>/members/<avatar-uuid> `
+  -Method Post `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/roles/<role-uuid>/members/<avatar-uuid> `
+  -Method Delete `
+  -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
 ## Estate security API
 
 Estate list operations teleport the bot to an anchor region first so Second Life applies the correct estate context. The bot account must have the appropriate estate manager powers.

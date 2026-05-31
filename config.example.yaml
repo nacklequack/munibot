@@ -82,6 +82,7 @@ tokens:
       - sl.group.ban.read
       - sl.group.ban.write
       - sl.group.roles.read
+      - sl.group.roles.write
       - sl.avatar.resolve
       - sl.im.send
       - sl.localchat.send

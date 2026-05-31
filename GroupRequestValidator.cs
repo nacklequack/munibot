@@ -30,6 +30,19 @@ public static class GroupRequestValidator
         return avatarId;
     }
 
+    public static UUID NormalizeRoleId(string? roleUuid)
+    {
+        var trimmed = roleUuid?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed) ||
+            !UUID.TryParse(trimmed, out var roleId) ||
+            roleId == UUID.Zero)
+        {
+            throw new ArgumentException("A valid Second Life group role UUID is required.");
+        }
+
+        return roleId;
+    }
+
     public static IReadOnlyList<UUID> NormalizeRoleIds(IEnumerable<string>? roleUuids)
     {
         var roles = new List<UUID>();
