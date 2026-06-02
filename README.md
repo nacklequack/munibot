@@ -1,8 +1,8 @@
 # Munibot
 
-Munibot is a small LibreMetaverse-based Second Life bot prototype.
+Munibot is a LibreMetaverse-based Second Life automation service. It logs in as one configured Second Life account, keeps that session online, and exposes a typed HTTP API for common bot operations such as group roster checks, avatar resolution, messaging, inventory delivery, texture upload, wallet operations, object interaction, and estate list management.
 
-Right now it only proves that we can log in from a YAML config file and keep the session alive. The next useful layer is group roster lookup, but this first step keeps the authentication path tiny and observable.
+Munibot is intended to run behind private networking and token-based service authentication. Do not expose it directly to the public internet.
 
 ## Setup
 
@@ -15,7 +15,7 @@ Copy-Item .\config.example.yaml .\config.yaml
 Then run:
 
 ```powershell
-dotnet run -- --config .\config.yaml
+dotnet run --project .\src\Munibot\Munibot.csproj -- --config .\config.yaml --urls http://127.0.0.1:5107
 ```
 
 For a short login smoke test that exits automatically, set:
@@ -51,35 +51,21 @@ The GitHub Actions workflow publishes the image to GitHub Container Registry as:
 ghcr.io/<owner>/<repo>:<tag>
 ```
 
-## Group roster API
-
-Run the bot and query a group UUID:
-
-```powershell
-dotnet run -- --config .\config.yaml --urls http://127.0.0.1:5107
-```
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/22222222-2222-4222-8222-222222222222/members
-```
-
-For a targeted membership check:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/22222222-2222-4222-8222-222222222222/members/11111111-1111-4111-8111-111111111111
-```
+## Authentication
 
 If `tokens` are configured in `config.yaml`, include one of:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members `
+Invoke-RestMethod http://127.0.0.1:5107/ready `
   -Headers @{ "X-Munibot-Token" = "<token>" }
 ```
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members `
+Invoke-RestMethod http://127.0.0.1:5107/ready `
   -Headers @{ Authorization = "Bearer <token>" }
 ```
+
+If no tokens are configured, API calls are allowed for local development only.
 
 ## Diagnostics
 
@@ -87,22 +73,19 @@ Munibot logs API calls and Second Life events to stdout. API body logging is dis
 
 After login, Munibot sends a lightweight Second Life `AgentUpdate` on `runtime.movement_keepalive_seconds` so the simulator circuit does not sit idle. The default is 20 seconds; set it to `0` only for debugging.
 
-`ExperienceEvent` generic messages are logged with their raw parameters when Second Life event logging is enabled. To persistently allow a trusted experience for the bot account, configure `experiences.auto_allow` or call:
-
-```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:5107/api/experiences/<experience-uuid>:allow `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
-
 Readiness is available at:
 
 ```text
 GET /ready
 ```
 
-The Corrade replacement roadmap lives in `docs/corrade-replacement-roadmap.md`.
+Health is available at:
 
-## Bot utilities
+```text
+GET /health
+```
+
+## Bot Utilities
 
 Check the bot location:
 
@@ -128,7 +111,7 @@ Invoke-RestMethod http://127.0.0.1:5107/api/ims `
   -Method Post `
   -ContentType "application/json" `
   -Headers @{ "X-Munibot-Token" = "<token>" } `
-  -Body '{"avatarId":"11111111-1111-4111-8111-111111111111","message":"Hello from Munibot"}'
+  -Body '{"avatarId":"00000000-0000-0000-0000-000000000000","message":"Hello from Munibot"}'
 ```
 
 Send local chat from the bot's current location:
@@ -141,7 +124,7 @@ Invoke-RestMethod http://127.0.0.1:5107/api/local-chat `
   -Body '{"message":"Hello from Munibot","channel":0,"chatType":"normal"}'
 ```
 
-Scan nearby visible objects around the bot. Radius defaults to 5 meters and can be filtered by object name:
+Scan nearby visible objects around the bot:
 
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:5107/api/objects/nearby?radius=5&name=chair" `
@@ -156,7 +139,9 @@ Invoke-RestMethod http://127.0.0.1:5107/api/objects/<object-uuid>/interactions `
   -ContentType "application/json" `
   -Headers @{ "X-Munibot-Token" = "<token>" } `
   -Body '{"action":"touch"}'
+```
 
+```powershell
 Invoke-RestMethod http://127.0.0.1:5107/api/objects/<object-uuid>/interactions `
   -Method Post `
   -ContentType "application/json" `
@@ -164,22 +149,50 @@ Invoke-RestMethod http://127.0.0.1:5107/api/objects/<object-uuid>/interactions `
   -Body '{"action":"sit","sitOffset":{"x":0,"y":0,"z":0}}'
 ```
 
-Object scanning requires `sl.object.scan`; object touch/sit requires `sl.object.interact`.
+## Groups And Avatars
 
-## Inventory and texture API
-
-Look up an inventory item by UUID:
+Read a group roster:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/inventory/items/<item-uuid> `
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members `
   -Headers @{ "X-Munibot-Token" = "<token>" }
 ```
 
-Look up an inventory item by path:
+Check a targeted group membership:
 
 ```powershell
-Invoke-RestMethod "http://127.0.0.1:5107/api/inventory/items/by-path?path=Textures/Example Region%20Poster" `
+Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members/<avatar-uuid> `
   -Headers @{ "X-Munibot-Token" = "<token>" }
+```
+
+Manage group bans, invites, ejects, and roles:
+
+```text
+GET    /api/groups/<group-uuid>/bans
+POST   /api/groups/<group-uuid>/bans/<avatar-uuid>:remove
+POST   /api/groups/<group-uuid>/invites
+POST   /api/groups/<group-uuid>/members/<avatar-uuid>:eject
+GET    /api/groups/<group-uuid>/members/<avatar-uuid>/roles
+GET    /api/groups/<group-uuid>/roles
+POST   /api/groups/<group-uuid>/roles/<role-uuid>/members/<avatar-uuid>
+DELETE /api/groups/<group-uuid>/roles/<role-uuid>/members/<avatar-uuid>
+```
+
+Resolve or search avatars:
+
+```text
+POST /api/avatars/resolve-keys
+POST /api/avatars/resolve-names
+GET  /api/avatars/search?query=<name>
+```
+
+## Inventory And Textures
+
+Look up inventory:
+
+```text
+GET /api/inventory/items/<item-uuid>
+GET /api/inventory/items/by-path?path=<inventory-path>
 ```
 
 Give an inventory item to an avatar:
@@ -192,8 +205,6 @@ Invoke-RestMethod http://127.0.0.1:5107/api/inventory/give `
   -Body '{"avatarId":"<avatar-uuid>","itemId":"<item-uuid>","doEffect":true}'
 ```
 
-If the item is not already loaded in the bot's inventory cache, include `itemName` and `assetType` so Second Life has the metadata needed for delivery.
-
 Rez an object inventory item into the bot's current simulator, or teleport first when `region` is supplied:
 
 ```powershell
@@ -201,10 +212,8 @@ Invoke-RestMethod http://127.0.0.1:5107/api/inventory/rez `
   -Method Post `
   -ContentType "application/json" `
   -Headers @{ "X-Munibot-Token" = "<token>" } `
-  -Body '{"itemPath":"My Inventory/Example Region Coastline Properties/Example Region Unclaimed Property","region":"Example Region","position":{"x":109.796,"y":59.8726,"z":28.2283},"count":5,"confirmRez":true}'
+  -Body '{"itemPath":"My Inventory/Objects/Example Object","region":"Example Region","position":{"x":128,"y":128,"z":25},"count":1,"confirmRez":true}'
 ```
-
-Inventory rez requires the `sl.inventory.rez` scope and `confirmRez: true`. Munibot returns the generated Second Life rez request IDs; the rezzed object will complete its normal in-world registration flow through its scripts.
 
 Upload a texture asset into the bot's Textures folder:
 
@@ -213,12 +222,12 @@ Invoke-RestMethod http://127.0.0.1:5107/api/textures `
   -Method Post `
   -ContentType "application/json" `
   -Headers @{ "X-Munibot-Token" = "<token>" } `
-  -Body '{"name":"Example Region Poster","description":"Uploaded by Munibot","textureDataBase64":"<sl-ready-jpeg2000-base64>","confirmUploadFee":true}'
+  -Body '{"name":"Example Texture","description":"Uploaded by Munibot","textureDataBase64":"<sl-ready-jpeg2000-base64>","confirmUploadFee":true}'
 ```
 
-Texture upload requires `confirmUploadFee: true` because Second Life may charge the bot account's upload fee depending on account benefits. Munibot echoes the upload capability's expected price during the SL handshake, but wallet/balance events are the source of truth for whether L$ were actually deducted. The first implementation expects SL-ready texture asset bytes, typically JPEG2000, encoded as base64.
+Texture upload requires `confirmUploadFee: true` because Second Life may charge the bot account's upload fee depending on account benefits. Wallet/balance events are the source of truth for whether L$ were actually deducted.
 
-## Wallet API
+## Wallet
 
 Fetch the current in-world Linden balance:
 
@@ -237,18 +246,14 @@ Invoke-RestMethod http://127.0.0.1:5107/api/wallet/pay-avatar `
   -Body '{"avatarId":"<avatar-uuid>","amount":1,"description":"Munibot payment test","confirmPayment":true}'
 ```
 
-Payments require `confirmPayment: true` and the `sl.wallet.pay` token scope. Descriptions are sent to Second Life but are not written to Munibot's structured operation log.
-
 Fetch historical Second Life account transactions for the configured bot web account:
 
 ```powershell
-Invoke-RestMethod "http://127.0.0.1:5107/api/wallet/account-history?fromUtc=2026-05-22T00:00:00Z&toUtc=2026-05-23T00:00:00Z" `
+Invoke-RestMethod "http://127.0.0.1:5107/api/wallet/account-history?fromUtc=2026-01-01T00:00:00Z&toUtc=2026-01-02T00:00:00Z" `
   -Headers @{ "X-Munibot-Token" = "<token>" }
 ```
 
-This uses the configured bot `login.password` for the Second Life web account login and requires the `sl.wallet.history` token scope. The endpoint is intended for callback reconciliation and returns transaction id, type, resident, timestamp, ending balance, and inferred adjacent-balance deltas.
-
-Munibot can also forward live Second Life money events into a configured callback. Configure the callback URL and shared secret from a configured callback settings:
+Munibot can also forward live Second Life money events to a configured callback endpoint. The `munibase.wallet_events` config section name is retained for compatibility with existing deployments:
 
 ```yaml
 munibase:
@@ -260,132 +265,27 @@ munibase:
     retry_delay_seconds: 2
 ```
 
-The posted payload is Corrade-compatible form data, so the receiving service can use the existing observed-transaction ingestion rules, matching, dedupe, and audit trail while identifying the provider in endpoint logs.
+The posted payload is form-encoded and intended for server-to-server ingestion, matching, dedupe, and audit workflows.
 
-## Avatar resolution API
-
-Resolve avatar UUIDs to names:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/avatars/resolve-keys `
-  -Method Post `
-  -ContentType "application/json" `
-  -Headers @{ "X-Munibot-Token" = "<token>" } `
-  -Body '{"avatarIds":["11111111-1111-4111-8111-111111111111"]}'
-```
-
-Resolve names to candidate UUIDs:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/avatars/resolve-names `
-  -Method Post `
-  -ContentType "application/json" `
-  -Headers @{ "X-Munibot-Token" = "<token>" } `
-  -Body '{"names":["Example Resident"]}'
-```
-
-Search people:
-
-```powershell
-Invoke-RestMethod "http://127.0.0.1:5107/api/avatars/search?query=Example" `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
-
-## Group management API
-
-Read group bans:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/bans `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
-
-Unban a group member:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/bans/<avatar-uuid>:remove `
-  -Method Post `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
-
-Invite an avatar to the default Everyone role:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/invites `
-  -Method Post `
-  -ContentType "application/json" `
-  -Headers @{ "X-Munibot-Token" = "<token>" } `
-  -Body '{"avatarId":"<avatar-uuid>","roleIds":[]}'
-```
-
-Eject an avatar:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members/<avatar-uuid>:eject `
-  -Method Post `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
-
-Read an avatar's role names:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/members/<avatar-uuid>/roles `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
-
-Read a group's role catalog:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/roles `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
-
-Assign or remove a member from a role:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/roles/<role-uuid>/members/<avatar-uuid> `
-  -Method Post `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/groups/<group-uuid>/roles/<role-uuid>/members/<avatar-uuid> `
-  -Method Delete `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
-
-## Estate security API
+## Estate Security
 
 Estate list operations teleport the bot to an anchor region first so Second Life applies the correct estate context. The bot account must have the appropriate estate manager powers.
 
-Read estate allowed users or banned users:
-
-```powershell
-Invoke-RestMethod "http://127.0.0.1:5107/api/estate/allow?anchorRegion=Example Region" `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
+```text
+GET  /api/estate/allow?anchorRegion=<region-name>
+GET  /api/estate/ban?anchorRegion=<region-name>
+POST /api/estate/allow/<avatar-uuid>
+POST /api/estate/allow/<avatar-uuid>:remove
+POST /api/estate/ban/<avatar-uuid>
+POST /api/estate/ban/<avatar-uuid>:remove
 ```
 
-```powershell
-Invoke-RestMethod "http://127.0.0.1:5107/api/estate/ban?anchorRegion=Example Region" `
-  -Headers @{ "X-Munibot-Token" = "<token>" }
-```
+## Development
 
-Add an avatar to the estate allow or ban list:
+Run tests:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/estate/ban/<avatar-uuid> `
-  -Method Post `
-  -ContentType "application/json" `
-  -Headers @{ "X-Munibot-Token" = "<token>" } `
-  -Body '{"anchorRegion":"Example Region","allEstates":false}'
+dotnet test .\Munibot.slnx
 ```
 
-Remove an avatar from the estate allow or ban list:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:5107/api/estate/ban/<avatar-uuid>:remove `
-  -Method Post `
-  -ContentType "application/json" `
-  -Headers @{ "X-Munibot-Token" = "<token>" } `
-  -Body '{"anchorRegion":"Example Region","allEstates":false}'
-```
+No public license has been selected yet. Until a license is added, this repository is visible source with all rights reserved by the repository owner.

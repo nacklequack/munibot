@@ -1,4 +1,5 @@
 bin/
 obj/
+artifacts/
 config.yaml
 *.user

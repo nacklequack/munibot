@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Munibot.csproj" />
+    <ProjectReference Include="..\..\src\Munibot\Munibot.csproj" />
   </ItemGroup>
 
 </Project>

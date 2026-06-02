@@ -1,4 +1,4 @@
 <Solution>
-  <Project Path="Munibot.csproj" />
+  <Project Path="src/Munibot/Munibot.csproj" />
   <Project Path="tests/Munibot.Tests/Munibot.Tests.csproj" />
 </Solution>

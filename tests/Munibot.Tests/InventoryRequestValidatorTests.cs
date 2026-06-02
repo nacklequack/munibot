@@ -34,9 +34,9 @@ public sealed class InventoryRequestValidatorTests
     [Fact]
     public void NormalizeItemPath_TrimsSlashes()
     {
-        var path = InventoryRequestValidator.NormalizeItemPath(" /Textures/Example Region Poster/ ");
+        var path = InventoryRequestValidator.NormalizeItemPath(" /Textures/Example Poster/ ");
 
-        Assert.Equal("Textures/Example Region Poster", path);
+        Assert.Equal("Textures/Example Poster", path);
     }
 
     [Fact]

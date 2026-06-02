@@ -1,11 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY Munibot.csproj ./
-RUN dotnet restore Munibot.csproj
+COPY src/Munibot/Munibot.csproj ./src/Munibot/
+RUN dotnet restore src/Munibot/Munibot.csproj
 
 COPY . ./
-RUN dotnet publish Munibot.csproj \
+RUN dotnet publish src/Munibot/Munibot.csproj \
     --configuration Release \
     --output /app/publish \
     --no-restore

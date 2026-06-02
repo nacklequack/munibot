@@ -35,7 +35,7 @@ public sealed class BotConfigTests
             experiences:
               auto_allow:
                 - id: 11111111-1111-1111-1111-111111111111
-                  name: Example Region Experience
+                  name: Example Experience
             account_history:
               username: Test Resident
               timeout_seconds: 31
@@ -74,7 +74,7 @@ public sealed class BotConfigTests
         Assert.False(config.Diagnostics.LogSecondLifeEvents);
         var experience = Assert.Single(config.Experiences.AutoAllow);
         Assert.Equal("11111111-1111-1111-1111-111111111111", experience.Id);
-        Assert.Equal("Example Region Experience", experience.Name);
+        Assert.Equal("Example Experience", experience.Name);
         Assert.Equal("Test Resident", config.AccountHistory.Username);
         Assert.Equal(31, config.AccountHistory.TimeoutSeconds);
         Assert.Equal("https://example.com/webhooks/second-life-money", config.Munibase.WalletEvents.EndpointUrl);

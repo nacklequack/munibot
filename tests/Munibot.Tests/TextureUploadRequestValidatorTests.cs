@@ -7,9 +7,9 @@ public sealed class TextureUploadRequestValidatorTests
     [Fact]
     public void NormalizeName_TrimsTextureName()
     {
-        var name = TextureUploadRequestValidator.NormalizeName(" Example Region Crest ");
+        var name = TextureUploadRequestValidator.NormalizeName(" Example Crest ");
 
-        Assert.Equal("Example Region Crest", name);
+        Assert.Equal("Example Crest", name);
     }
 
     [Fact]

@@ -40,15 +40,16 @@ account_history:
 
 munibase:
   wallet_events:
-    # Optional. When configured, Munibot posts Corrade-compatible economy callbacks
-    # into a trusted callback endpoint.
+    # Optional. When configured, Munibot posts form-encoded money event callbacks
+    # to a trusted server-to-server endpoint. The section name is retained for
+    # compatibility with existing deployments.
     # endpoint_url: https://example.com/webhooks/second-life-money
     # shared_secret: replace-with-callback-secret
     timeout_seconds: 10
     max_delivery_attempts: 3
     retry_delay_seconds: 2
     # When Second Life only reports a balance increase, Munibot reconciles recent
-    # account history and publishes matching incoming payments to Munibase.
+    # account history and publishes matching incoming payments to the callback.
     history_lookback_minutes: 10
     history_reconcile_attempts: 3
     history_reconcile_delay_seconds: 5
@@ -68,7 +69,7 @@ experiences:
   auto_allow: []
   # auto_allow:
   #   - id: 00000000-0000-0000-0000-000000000000
-  #     name: Example Region Experience
+  #     name: Example Experience
 
 # If no tokens are configured, API calls are allowed for local development.
 # Configure tokens in production. Send either X-Munibot-Token or Authorization: Bearer.
