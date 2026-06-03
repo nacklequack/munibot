@@ -3,6 +3,7 @@ using OpenMetaverse;
 using OpenMetaverse.Messages.Linden;
 using OpenMetaverse.Packets;
 using OpenMetaverse.StructuredData;
+using System.Reflection;
 
 namespace Munibot;
 
@@ -778,6 +779,22 @@ public sealed class SecondLifeBotSession(
         var objectId = ObjectInteractionRequestValidator.NormalizeObjectId(objectUuid);
         var action = ObjectInteractionRequestValidator.NormalizeAction(request.Action);
         var sitOffset = ObjectInteractionRequestValidator.NormalizeSitOffset(request.SitOffset);
+
+        return await InteractWithObjectCoreAsync(
+            objectId,
+            action,
+            sitOffset,
+            maxDistanceMeters: null,
+            cancellationToken);
+    }
+
+    private async Task<ObjectInteractResultDto> InteractWithObjectCoreAsync(
+        UUID objectId,
+        string action,
+        Vector3 sitOffset,
+        float? maxDistanceMeters,
+        CancellationToken cancellationToken)
+    {
         EnsureOnline();
 
         await _objectInteractionLock.WaitAsync(cancellationToken);
@@ -789,6 +806,13 @@ public sealed class SecondLifeBotSession(
             var primitive = FindPrimitive(simulator, objectId)
                 ?? throw new InvalidOperationException($"Object {objectId} is not currently visible to the bot in simulator {simulator.Name}.");
             var origin = _client.Self.SimPosition;
+            var distance = Vector3.Distance(origin, primitive.Position);
+
+            if (maxDistanceMeters.HasValue && distance > maxDistanceMeters.Value)
+            {
+                throw new InvalidOperationException(
+                    $"Object {objectId} is {distance:F2}m from the bot; maximum allowed distance is {maxDistanceMeters.Value:F2}m.");
+            }
 
             switch (action)
             {
@@ -808,7 +832,7 @@ public sealed class SecondLifeBotSession(
                 objectId,
                 primitive.LocalID,
                 primitive.Properties?.Name ?? "(unknown)",
-                Vector3.Distance(origin, primitive.Position));
+                distance);
 
             return new ObjectInteractResultDto(
                 objectId.ToString(),
@@ -816,7 +840,7 @@ public sealed class SecondLifeBotSession(
                 action,
                 primitive.Properties?.Name,
                 new Vector3Dto(primitive.Position.X, primitive.Position.Y, primitive.Position.Z),
-                Vector3.Distance(origin, primitive.Position),
+                distance,
                 true,
                 requestedAt,
                 DateTimeOffset.UtcNow);
@@ -2266,12 +2290,26 @@ public sealed class SecondLifeBotSession(
 
         _client.Self.MoneyBalance += (_, e) => _ = HandleWalletBalanceAsync(e);
         _client.Self.MoneyBalanceReply += (_, e) => _ = HandleWalletBalanceReplyAsync(e);
+        _client.Self.ChatFromSimulator += (_, e) =>
+        {
+            _ = HandleLslCommandEventAsync("chat", e);
+            if (config.Diagnostics.LogSecondLifeEvents)
+            {
+                LogSecondLifeEvent("chat", e);
+            }
+        };
+        _client.Self.IM += (_, e) =>
+        {
+            _ = HandleLslCommandEventAsync("instant-message", e);
+            if (config.Diagnostics.LogSecondLifeEvents)
+            {
+                LogSecondLifeEvent("instant-message", e);
+            }
+        };
 
         if (config.Diagnostics.LogSecondLifeEvents)
         {
             _client.Network.RegisterCallback(PacketType.GenericMessage, (_, e) => LogGenericMessage(e));
-            _client.Self.ChatFromSimulator += (_, e) => LogSecondLifeEvent("chat", e);
-            _client.Self.IM += (_, e) => LogSecondLifeEvent("instant-message", e);
             _client.Self.TeleportProgress += (_, e) => LogSecondLifeEvent("teleport-progress", e);
             _client.Self.AlertMessage += (_, e) => LogSecondLifeEvent("alert-message", e);
             _client.Self.ScriptDialog += (_, e) => LogSecondLifeEvent("script-dialog", e);
@@ -2285,6 +2323,93 @@ public sealed class SecondLifeBotSession(
     {
         var values = SecondLifeEventFormatter.Format(eventArgs, config.Diagnostics.MaxLoggedBodyBytes);
         logger.LogInformation("SL event {EventName}: {@EventValues}", eventName, values);
+    }
+
+    private async Task HandleLslCommandEventAsync(string eventName, object eventArgs)
+    {
+        try
+        {
+            if (!config.LslCommands.IsConfigured)
+            {
+                return;
+            }
+
+            var message = GetNestedString(eventArgs, "Message") ??
+                          GetNestedString(eventArgs, "IM.Message");
+            if (!LslCommandParser.TryParseSitCommand(
+                    message,
+                    config.LslCommands.SharedSecret,
+                    out var command,
+                    out var failureReason))
+            {
+                if (message?.TrimStart().StartsWith("munibot", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    logger.LogWarning(
+                        "Rejected LSL command from {EventName} source={SourceId} sourceName={SourceName}: {Reason}",
+                        eventName,
+                        GetEventSourceId(eventArgs) ?? "unknown",
+                        GetEventSourceName(eventArgs) ?? "unknown",
+                        failureReason ?? "Command was not recognized.");
+                }
+
+                return;
+            }
+
+            var offset = ObjectInteractionRequestValidator.NormalizeSitOffset(command!.SitOffset);
+            var result = await InteractWithObjectCoreAsync(
+                command.ObjectId,
+                "sit",
+                offset,
+                config.LslCommands.MaxSitDistanceMeters,
+                CancellationToken.None);
+
+            logger.LogInformation(
+                "Executed LSL sit command from {EventName} source={SourceId} sourceName={SourceName} object={ObjectId} distance={Distance:F2}",
+                eventName,
+                GetEventSourceId(eventArgs) ?? "unknown",
+                GetEventSourceName(eventArgs) ?? "unknown",
+                result.ObjectId,
+                result.Distance);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "LSL command handling failed for {EventName} source={SourceId} sourceName={SourceName}",
+                eventName,
+                GetEventSourceId(eventArgs) ?? "unknown",
+                GetEventSourceName(eventArgs) ?? "unknown");
+        }
+    }
+
+    private static string? GetEventSourceId(object eventArgs)
+        => GetNestedString(eventArgs, "SourceID") ??
+           GetNestedString(eventArgs, "ObjectID") ??
+           GetNestedString(eventArgs, "FromAgentID") ??
+           GetNestedString(eventArgs, "IM.FromAgentID");
+
+    private static string? GetEventSourceName(object eventArgs)
+        => GetNestedString(eventArgs, "FromName") ??
+           GetNestedString(eventArgs, "ObjectName") ??
+           GetNestedString(eventArgs, "FromAgentName") ??
+           GetNestedString(eventArgs, "IM.FromAgentName");
+
+    private static string? GetNestedString(object value, string path)
+    {
+        object? current = value;
+        foreach (var part in path.Split('.'))
+        {
+            if (current is null)
+            {
+                return null;
+            }
+
+            var type = current.GetType();
+            current = type.GetProperty(part, BindingFlags.Instance | BindingFlags.Public)?.GetValue(current) ??
+                      type.GetField(part, BindingFlags.Instance | BindingFlags.Public)?.GetValue(current);
+        }
+
+        return current?.ToString();
     }
 
     private async Task HandleWalletBalanceAsync(BalanceEventArgs eventArgs)

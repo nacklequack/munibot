@@ -36,6 +36,9 @@ public sealed class BotConfigTests
               auto_allow:
                 - id: 11111111-1111-1111-1111-111111111111
                   name: Example Experience
+            lsl_commands:
+              shared_secret: lsl-secret
+              max_sit_distance_meters: 4.5
             account_history:
               username: Test Resident
               timeout_seconds: 31
@@ -75,6 +78,9 @@ public sealed class BotConfigTests
         var experience = Assert.Single(config.Experiences.AutoAllow);
         Assert.Equal("11111111-1111-1111-1111-111111111111", experience.Id);
         Assert.Equal("Example Experience", experience.Name);
+        Assert.Equal("lsl-secret", config.LslCommands.SharedSecret);
+        Assert.Equal(4.5f, config.LslCommands.MaxSitDistanceMeters);
+        Assert.True(config.LslCommands.IsConfigured);
         Assert.Equal("Test Resident", config.AccountHistory.Username);
         Assert.Equal(31, config.AccountHistory.TimeoutSeconds);
         Assert.Equal("https://example.com/webhooks/second-life-money", config.Munibase.WalletEvents.EndpointUrl);
@@ -125,6 +131,8 @@ public sealed class BotConfigTests
     [InlineData("munibase:\n  wallet_events:\n    endpoint_url: https://example.com/webhooks/second-life-money", "munibase.wallet_events.shared_secret")]
     [InlineData("diagnostics:\n  max_logged_body_bytes: -1", "diagnostics.max_logged_body_bytes")]
     [InlineData("diagnostics:\n  log_level: VerbosePlease", "diagnostics.log_level")]
+    [InlineData("lsl_commands:\n  max_sit_distance_meters: 0", "lsl_commands.max_sit_distance_meters")]
+    [InlineData("lsl_commands:\n  max_sit_distance_meters: 97", "lsl_commands.max_sit_distance_meters")]
     [InlineData("experiences:\n  auto_allow:\n    - id: not-a-uuid", "experiences.auto_allow[not-a-uuid].id")]
     public void Load_RejectsInvalidPhaseOneSettings(string yamlFragment, string expectedMessage)
     {

@@ -71,6 +71,14 @@ experiences:
   #   - id: 00000000-0000-0000-0000-000000000000
   #     name: Example Experience
 
+lsl_commands:
+  # Optional. When shared_secret is configured, in-world scripts can ask the bot
+  # to sit on a nearby visible object via:
+  #   llInstantMessage(BOT_AVATAR_UUID, "munibot sit <secret> <object-uuid>");
+  # Keep this secret out of public scripts and rotate it if disclosed.
+  # shared_secret: replace-with-lsl-command-secret
+  max_sit_distance_meters: 5
+
 # If no tokens are configured, API calls are allowed for local development.
 # Configure tokens in production. Send either X-Munibot-Token or Authorization: Bearer.
 tokens:

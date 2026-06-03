@@ -31,6 +31,7 @@ public static partial class Redaction
 
         var redacted = BearerTokenRegex().Replace(value, "$1[redacted]");
         redacted = PasswordLikeRegex().Replace(redacted, "$1[redacted]");
+        redacted = LslSitCommandRegex().Replace(redacted, "$1[redacted]$3");
         redacted = LongBase64Regex().Replace(redacted, "[redacted-large-token]");
 
         return redacted.Length <= maxLength
@@ -117,6 +118,9 @@ public static partial class Redaction
 
     [GeneratedRegex(@"(?i)(password\s*[=:]\s*)([^\s,;]+)")]
     private static partial Regex PasswordLikeRegex();
+
+    [GeneratedRegex(@"(?i)(\bmunibot\s+sit\s+)(\S+)(\s+\S+)")]
+    private static partial Regex LslSitCommandRegex();
 
     [GeneratedRegex(@"[A-Za-z0-9+/]{120,}={0,2}")]
     private static partial Regex LongBase64Regex();

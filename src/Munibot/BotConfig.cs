@@ -10,6 +10,7 @@ public sealed class BotConfig
     public BotApiConfig Api { get; init; } = new();
     public BotDiagnosticsConfig Diagnostics { get; init; } = new();
     public BotExperiencesConfig Experiences { get; init; } = new();
+    public BotLslCommandsConfig LslCommands { get; init; } = new();
     public BotAccountHistoryConfig AccountHistory { get; init; } = new();
     public BotMunibaseConfig Munibase { get; init; } = new();
     public List<BotApiTokenConfig> Tokens { get; init; } = [];
@@ -168,6 +169,13 @@ public sealed class BotConfig
             throw new InvalidOperationException("diagnostics.max_logged_body_bytes cannot be negative.");
         }
 
+        if (LslCommands.MaxSitDistanceMeters <= 0 ||
+            LslCommands.MaxSitDistanceMeters > ObjectInteractionRequestValidator.MaxScanRadiusMeters)
+        {
+            throw new InvalidOperationException(
+                $"lsl_commands.max_sit_distance_meters must be greater than 0 and no more than {ObjectInteractionRequestValidator.MaxScanRadiusMeters}.");
+        }
+
         if (!Enum.TryParse<Microsoft.Extensions.Logging.LogLevel>(
                 Diagnostics.LogLevel,
                 ignoreCase: true,
@@ -252,6 +260,14 @@ public sealed class BotDiagnosticsConfig
 public sealed class BotExperiencesConfig
 {
     public List<BotExperienceAllowConfig> AutoAllow { get; init; } = [];
+}
+
+public sealed class BotLslCommandsConfig
+{
+    public string? SharedSecret { get; init; }
+    public float MaxSitDistanceMeters { get; init; } = ObjectInteractionRequestValidator.DefaultScanRadiusMeters;
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(SharedSecret);
 }
 
 public sealed class BotAccountHistoryConfig

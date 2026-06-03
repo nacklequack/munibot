@@ -149,6 +149,34 @@ Invoke-RestMethod http://127.0.0.1:5107/api/objects/<object-uuid>/interactions `
   -Body '{"action":"sit","sitOffset":{"x":0,"y":0,"z":0}}'
 ```
 
+Munibot can also accept a minimal in-world LSL command over object instant message. This is useful for asking the bot to re-sit on a nearby known object after a deployment or reconnect.
+
+Configure:
+
+```yaml
+lsl_commands:
+  shared_secret: replace-with-lsl-command-secret
+  max_sit_distance_meters: 5
+```
+
+Example LSL:
+
+```lsl
+key BOT_AVATAR = "00000000-0000-0000-0000-000000000000";
+key CHAIR_OBJECT = "00000000-0000-0000-0000-000000000000";
+string SECRET = "replace-with-lsl-command-secret";
+
+default
+{
+    touch_start(integer total_number)
+    {
+        llInstantMessage(BOT_AVATAR, "munibot sit " + SECRET + " " + (string)CHAIR_OBJECT);
+    }
+}
+```
+
+Optional sit offsets can be supplied as `offset=<x,y,z>`. The command is ignored unless the shared secret matches, and Munibot refuses to sit if the object is not currently visible within `max_sit_distance_meters`.
+
 ## Groups And Avatars
 
 Read a group roster:
