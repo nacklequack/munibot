@@ -74,7 +74,9 @@ public sealed class SecondLifeAccountHistoryClientTests
 
         Assert.Equal(2, result.TransactionCount);
         Assert.Equal("11111111-1111-1111-1111-111111111111", result.Transactions[0].TransactionId);
+        Assert.Equal(new DateTimeOffset(2026, 5, 23, 3, 15, 0, TimeSpan.Zero), result.Transactions[0].OccurredAtUtc);
         Assert.Null(result.Transactions[0].InferredAmountDelta);
+        Assert.Equal(new DateTimeOffset(2026, 5, 23, 3, 20, 0, TimeSpan.Zero), result.Transactions[1].OccurredAtUtc);
         Assert.Equal(-250, result.Transactions[1].InferredAmountDelta);
         Assert.Contains(handler.Requests, request =>
             request.RequestUri?.Host == "accounts.secondlife.com" &&
@@ -122,6 +124,55 @@ public sealed class SecondLifeAccountHistoryClientTests
 
         Assert.Contains(handler.RequestBodies, body =>
             body.Contains("username=Test+Resident", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetTransactionsAsync_PreservesExplicitUtcTimestamps()
+    {
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/openid/login")
+            {
+                return Html("""<form id="loginform"><input type="hidden" name="csrf" value="abc" /></form>""");
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/openid/loginsubmit")
+            {
+                return Html("""<form id="openid_message"><input type="hidden" name="openid.mode" value="id_res" /></form>""");
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/openid/openidserver")
+            {
+                return Html("<html>ok</html>");
+            }
+
+            if (request.RequestUri?.Host == "accounts.secondlife.com")
+            {
+                return Xml("""
+                    <transactions>
+                      <transaction>
+                        <id>fb667d4a-1e92-56ff-a78b-9d944aaf5e7e</id>
+                        <type>Payment</type>
+                        <description>Dorm 201</description>
+                        <resident>Caeleb Brunswick</resident>
+                        <time>2026-06-05T10:29:31Z</time>
+                        <end_balance>10910</end_balance>
+                      </transaction>
+                    </transactions>
+                    """);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        var client = CreateClient(handler);
+
+        var result = await client.GetTransactionsAsync(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow,
+            CancellationToken.None);
+
+        Assert.Single(result.Transactions);
+        Assert.Equal(new DateTimeOffset(2026, 6, 5, 10, 29, 31, TimeSpan.Zero), result.Transactions[0].OccurredAtUtc);
     }
 
     [Fact]

@@ -105,7 +105,7 @@ public static class WalletEventMapper
         AccountHistoryTransactionDto transaction,
         string? sourceAvatarUuid,
         UUID botAgentId,
-        int observedDelta)
+        int? observedDelta)
     {
         if (string.IsNullOrWhiteSpace(transaction.TransactionId) ||
             string.IsNullOrWhiteSpace(sourceAvatarUuid))
@@ -117,7 +117,7 @@ public static class WalletEventMapper
             ? transaction.InferredAmountDelta.Value
             : observedDelta;
 
-        if (amount <= 0)
+        if (amount is not > 0)
         {
             return null;
         }
@@ -125,7 +125,7 @@ public static class WalletEventMapper
         return new WalletEventDto(
             true,
             transaction.EndBalance > int.MaxValue ? null : (int)transaction.EndBalance,
-            amount,
+            amount.Value,
             transaction.TransactionId.Trim(),
             sourceAvatarUuid.Trim(),
             botAgentId.ToString(),

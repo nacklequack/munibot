@@ -2436,7 +2436,8 @@ public sealed class SecondLifeBotSession(
                     previousBalance.Value,
                     eventArgs.Balance,
                     delta.Value,
-                    observedAtUtc);
+                    observedAtUtc,
+                    null);
             }
         }
         catch (Exception ex)
@@ -2470,12 +2471,20 @@ public sealed class SecondLifeBotSession(
                     previousBalance.Value,
                     eventArgs.Balance,
                     delta.Value,
-                    observedAtUtc);
+                    observedAtUtc,
+                    eventArgs.TransactionID.ToString());
             }
 
             if (delta is > 0)
             {
                 await PublishWalletEventAsync(eventArgs);
+            }
+            else if (eventArgs.TransactionID != UUID.Zero)
+            {
+                await ReconcileWalletBalanceReplyTransactionAsync(
+                    eventArgs.Balance,
+                    eventArgs.TransactionID.ToString(),
+                    observedAtUtc);
             }
             else
             {
@@ -2508,7 +2517,8 @@ public sealed class SecondLifeBotSession(
         int previousBalance,
         int currentBalance,
         int observedDelta,
-        DateTimeOffset observedAtUtc)
+        DateTimeOffset observedAtUtc,
+        string? transactionId)
     {
         if (!config.Munibase.WalletEvents.IsConfigured)
         {
@@ -2545,7 +2555,8 @@ public sealed class SecondLifeBotSession(
                 var published = await PublishIncomingWalletEventsFromHistoryAsync(
                     currentBalance,
                     observedDelta,
-                    observedAtUtc);
+                    observedAtUtc,
+                    transactionId);
 
                 if (published > 0)
                 {
@@ -2581,22 +2592,96 @@ public sealed class SecondLifeBotSession(
         }
     }
 
+    private async Task ReconcileWalletBalanceReplyTransactionAsync(
+        int currentBalance,
+        string transactionId,
+        DateTimeOffset observedAtUtc)
+    {
+        if (!config.Munibase.WalletEvents.IsConfigured)
+        {
+            logger.LogWarning(
+                "Wallet balance reply transaction={TransactionId} observed without a positive balance delta, but Munibase wallet event delivery is not configured; skipping treasury callback.",
+                transactionId);
+            return;
+        }
+
+        logger.LogInformation(
+            "Wallet balance reply transaction={TransactionId} observed without a positive balance delta; reconciling account history for callback.",
+            transactionId);
+
+        if (!await _walletHistoryReconcileLock.WaitAsync(0))
+        {
+            logger.LogInformation(
+                "Wallet history reconciliation is already running; skipping balance reply transaction={TransactionId} current={CurrentBalance}.",
+                transactionId,
+                currentBalance);
+            return;
+        }
+
+        try
+        {
+            var attempts = Math.Max(config.Munibase.WalletEvents.HistoryReconcileAttempts, 1);
+            for (var attempt = 1; attempt <= attempts; attempt++)
+            {
+                if (attempt > 1 && config.Munibase.WalletEvents.HistoryReconcileDelaySeconds > 0)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(config.Munibase.WalletEvents.HistoryReconcileDelaySeconds));
+                }
+
+                var published = await PublishIncomingWalletEventsFromHistoryAsync(
+                    currentBalance,
+                    null,
+                    observedAtUtc,
+                    transactionId);
+
+                if (published > 0)
+                {
+                    logger.LogInformation(
+                        "Wallet balance reply transaction={TransactionId} reconciled via account history current={CurrentBalance} published={PublishedCount} attempt={Attempt}.",
+                        transactionId,
+                        currentBalance,
+                        published,
+                        attempt);
+                    return;
+                }
+            }
+
+            logger.LogWarning(
+                "Wallet balance reply transaction={TransactionId} current={CurrentBalance} did not match a positive account-history transaction.",
+                transactionId,
+                currentBalance);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Wallet balance reply transaction reconciliation failed transaction={TransactionId} current={CurrentBalance}.",
+                transactionId,
+                currentBalance);
+        }
+        finally
+        {
+            _walletHistoryReconcileLock.Release();
+        }
+    }
+
     private async Task<int> PublishIncomingWalletEventsFromHistoryAsync(
         int currentBalance,
-        int observedDelta,
-        DateTimeOffset observedAtUtc)
+        int? observedDelta,
+        DateTimeOffset observedAtUtc,
+        string? transactionId)
     {
         var lookback = TimeSpan.FromMinutes(config.Munibase.WalletEvents.HistoryLookbackMinutes);
         var fromUtc = observedAtUtc.Subtract(lookback);
         var toUtc = observedAtUtc.AddMinutes(1);
 
         var history = await accountHistoryClient.GetTransactionsAsync(fromUtc, toUtc);
-        var candidates = history.Transactions
-            .Where(transaction => transaction.OccurredAtUtc >= fromUtc && transaction.OccurredAtUtc <= toUtc)
-            .Where(transaction => IsPotentialIncomingWalletTransaction(transaction, currentBalance))
-            .OrderBy(transaction => transaction.OccurredAtUtc)
-            .ThenBy(transaction => transaction.TransactionId, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var candidates = WalletHistoryReconciliation.SelectIncomingCandidates(
+            history.Transactions,
+            fromUtc,
+            toUtc,
+            currentBalance,
+            transactionId);
 
         var published = 0;
         foreach (var transaction in candidates)
@@ -2635,23 +2720,6 @@ public sealed class SecondLifeBotSession(
         }
 
         return published;
-    }
-
-    private static bool IsPotentialIncomingWalletTransaction(
-        AccountHistoryTransactionDto transaction,
-        int currentBalance)
-    {
-        if (string.IsNullOrWhiteSpace(transaction.Resident))
-        {
-            return false;
-        }
-
-        if (transaction.InferredAmountDelta.HasValue)
-        {
-            return transaction.InferredAmountDelta.Value > 0;
-        }
-
-        return transaction.EndBalance == unchecked((uint)currentBalance);
     }
 
     private async Task<string?> ResolveAccountHistoryResidentAsync(string? resident)

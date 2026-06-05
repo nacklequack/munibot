@@ -106,6 +106,26 @@ public sealed class WalletEventMapperTests
         Assert.Equal(10, result.Amount);
     }
 
+    [Fact]
+    public void FromAccountHistoryTransaction_UsesHistoryDeltaWhenObservedDeltaIsMissing()
+    {
+        var result = WalletEventMapper.FromAccountHistoryTransaction(
+            new AccountHistoryTransactionDto(
+                "22222222-2222-2222-2222-222222222222",
+                "Payment",
+                "Dorm 201",
+                "Payment Sender",
+                DateTimeOffset.UtcNow,
+                12115,
+                160),
+            "11111111-1111-1111-1111-111111111111",
+            UUID.Parse("00000000-0000-0000-0000-000000000001"),
+            observedDelta: null);
+
+        Assert.NotNull(result);
+        Assert.Equal(160, result.Amount);
+    }
+
     private sealed class FakeTransactionInfo
     {
         public int Amount { get; init; }

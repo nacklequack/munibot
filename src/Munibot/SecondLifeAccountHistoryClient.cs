@@ -15,6 +15,7 @@ public sealed partial class SecondLifeAccountHistoryClient(
     private const string LoginSubmitUrl = "https://id.secondlife.com/openid/loginsubmit";
     private const string OpenIdServerUrl = "https://id.secondlife.com/openid/openidserver";
     private const string TransactionHistoryUrl = "https://accounts.secondlife.com/get_transaction_history_csv";
+    private static readonly TimeZoneInfo AccountHistoryTimeZone = ResolveAccountHistoryTimeZone();
 
     private readonly Func<HttpMessageHandler> _handlerFactory = CreateDefaultHandler;
 
@@ -270,11 +271,7 @@ public sealed partial class SecondLifeAccountHistoryClient(
             }
 
             var timestampRaw = transactionElement.Element("time")?.Value?.Trim();
-            if (!DateTimeOffset.TryParse(
-                    timestampRaw,
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                    out var occurredAtUtc))
+            if (!TryParseAccountHistoryTimestamp(timestampRaw, out var occurredAtUtc))
             {
                 continue;
             }
@@ -313,6 +310,76 @@ public sealed partial class SecondLifeAccountHistoryClient(
 
     private static string? NullIfWhiteSpace(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool TryParseAccountHistoryTimestamp(string? timestampRaw, out DateTimeOffset occurredAtUtc)
+    {
+        occurredAtUtc = default;
+        if (string.IsNullOrWhiteSpace(timestampRaw))
+        {
+            return false;
+        }
+
+        var trimmed = timestampRaw.Trim();
+        if (HasExplicitOffset(trimmed) &&
+            DateTimeOffset.TryParse(
+                trimmed,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces,
+                out var offsetTimestamp))
+        {
+            occurredAtUtc = offsetTimestamp.ToUniversalTime();
+            return true;
+        }
+
+        if (!DateTime.TryParse(
+                trimmed,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces,
+                out var localTimestamp))
+        {
+            return false;
+        }
+
+        var unspecified = DateTime.SpecifyKind(localTimestamp, DateTimeKind.Unspecified);
+        occurredAtUtc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecified, AccountHistoryTimeZone));
+        return true;
+    }
+
+    private static bool HasExplicitOffset(string value)
+    {
+        if (value.EndsWith("Z", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var timeSeparator = value.LastIndexOfAny(['T', ' ']);
+        if (timeSeparator < 0)
+        {
+            return false;
+        }
+
+        var timePart = value[(timeSeparator + 1)..];
+        return timePart.LastIndexOf('+') > 0 || timePart.LastIndexOf('-') > 0;
+    }
+
+    private static TimeZoneInfo ResolveAccountHistoryTimeZone()
+    {
+        foreach (var id in new[] { "America/Los_Angeles", "Pacific Standard Time" })
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(id);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
+        }
+
+        return TimeZoneInfo.Utc;
+    }
 
     private static bool IsRedirect(HttpStatusCode statusCode)
         => statusCode == HttpStatusCode.Moved ||
