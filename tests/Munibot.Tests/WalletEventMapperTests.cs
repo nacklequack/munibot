@@ -113,7 +113,7 @@ public sealed class WalletEventMapperTests
             new AccountHistoryTransactionDto(
                 "22222222-2222-2222-2222-222222222222",
                 "Payment",
-                "Dorm 201",
+                "Test Rental",
                 "Payment Sender",
                 DateTimeOffset.UtcNow,
                 12115,

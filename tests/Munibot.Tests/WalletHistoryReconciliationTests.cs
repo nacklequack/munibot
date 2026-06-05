@@ -9,7 +9,7 @@ public sealed class WalletHistoryReconciliationTests
     {
         var fromUtc = new DateTimeOffset(2026, 6, 5, 10, 20, 0, TimeSpan.Zero);
         var toUtc = new DateTimeOffset(2026, 6, 5, 10, 40, 0, TimeSpan.Zero);
-        var targetTransactionId = "fb667d4a-1e92-56ff-a78b-9d944aaf5e7e";
+        var targetTransactionId = "33333333-3333-3333-3333-333333333333";
 
         var transactions = new[]
         {
@@ -24,8 +24,8 @@ public sealed class WalletHistoryReconciliationTests
             new AccountHistoryTransactionDto(
                 targetTransactionId,
                 "Payment",
-                "Dorm 201",
-                "Caeleb Brunswick",
+                "Test Rental",
+                "Example Resident",
                 new DateTimeOffset(2026, 6, 5, 10, 29, 31, TimeSpan.Zero),
                 10910,
                 160)
@@ -45,7 +45,7 @@ public sealed class WalletHistoryReconciliationTests
     [Fact]
     public void SelectIncomingCandidates_RejectsOutgoingExactTransaction()
     {
-        var transactionId = "fb667d4a-1e92-56ff-a78b-9d944aaf5e7e";
+        var transactionId = "33333333-3333-3333-3333-333333333333";
         var transactions = new[]
         {
             new AccountHistoryTransactionDto(

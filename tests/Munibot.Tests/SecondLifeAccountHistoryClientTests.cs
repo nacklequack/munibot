@@ -151,10 +151,10 @@ public sealed class SecondLifeAccountHistoryClientTests
                 return Xml("""
                     <transactions>
                       <transaction>
-                        <id>fb667d4a-1e92-56ff-a78b-9d944aaf5e7e</id>
+                        <id>33333333-3333-3333-3333-333333333333</id>
                         <type>Payment</type>
-                        <description>Dorm 201</description>
-                        <resident>Caeleb Brunswick</resident>
+                        <description>Test Rental</description>
+                        <resident>Example Resident</resident>
                         <time>2026-06-05T10:29:31Z</time>
                         <end_balance>10910</end_balance>
                       </transaction>
