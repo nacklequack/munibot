@@ -45,12 +45,29 @@ public static class InventoryRequestValidator
             return null;
         }
 
+        trimmed = StripInventoryRoot(trimmed);
+
         if (trimmed.Length > MaxItemPathLength)
         {
             throw new ArgumentException($"Inventory item path must be {MaxItemPathLength} characters or fewer.");
         }
 
         return trimmed;
+    }
+
+    private static string StripInventoryRoot(string itemPath)
+    {
+        var normalized = itemPath.Replace('\\', '/');
+        foreach (var rootName in new[] { "My Inventory", "Inventory" })
+        {
+            var prefix = rootName + "/";
+            if (normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return normalized[prefix.Length..].Trim('/');
+            }
+        }
+
+        return normalized;
     }
 
     public static string? NormalizeItemName(string? itemName)

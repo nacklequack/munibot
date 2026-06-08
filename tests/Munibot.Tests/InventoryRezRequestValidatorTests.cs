@@ -5,6 +5,18 @@ namespace Munibot.Tests;
 public sealed class InventoryRezRequestValidatorTests
 {
     [Theory]
+    [InlineData("My Inventory/Briarmont Coastline Properties/Briarmont Unclaimed Property", "Briarmont Coastline Properties/Briarmont Unclaimed Property")]
+    [InlineData("Inventory/Briarmont Coastline Properties/Briarmont Unclaimed Property", "Briarmont Coastline Properties/Briarmont Unclaimed Property")]
+    [InlineData(@"My Inventory\Briarmont Coastline Properties\Briarmont Unclaimed Property", "Briarmont Coastline Properties/Briarmont Unclaimed Property")]
+    [InlineData("/Briarmont Coastline Properties/Briarmont Unclaimed Property/", "Briarmont Coastline Properties/Briarmont Unclaimed Property")]
+    public void NormalizeItemPath_ReturnsRootRelativePath(string input, string expected)
+    {
+        var normalized = InventoryRequestValidator.NormalizeItemPath(input);
+
+        Assert.Equal(expected, normalized);
+    }
+
+    [Theory]
     [InlineData(null, 1)]
     [InlineData(1, 1)]
     [InlineData(5, 5)]
