@@ -2193,9 +2193,27 @@ public sealed class SecondLifeBotSession(
                 throw new InvalidOperationException("Second Life inventory root folder is not available.");
             }
 
+            logger.LogInformation(
+                "Resolving Second Life inventory item by path path={ItemPath} rootFolder={RootFolderId}",
+                itemPath,
+                rootFolderId);
+
             resolvedItemId = await Task.Run(
-                () => _client.Inventory.FindObjectByPath(rootFolderId, _client.Self.AgentID, itemPath, timeout),
+                () => ResolveInventoryItemIdByFolderContents(itemPath, rootFolderId, timeout, cancellationToken),
                 cancellationToken);
+
+            if (!resolvedItemId.HasValue || resolvedItemId.Value == UUID.Zero)
+            {
+                var fallbackTimeout = TimeSpan.FromSeconds(Math.Min(10, Math.Max(2, timeout.TotalSeconds / 3)));
+                logger.LogWarning(
+                    "Second Life folder traversal did not resolve inventory path path={ItemPath}; falling back to simulator path lookup timeoutSeconds={TimeoutSeconds}",
+                    itemPath,
+                    fallbackTimeout.TotalSeconds);
+
+                resolvedItemId = await Task.Run(
+                    () => _client.Inventory.FindObjectByPath(rootFolderId, _client.Self.AgentID, itemPath, fallbackTimeout),
+                    cancellationToken);
+            }
         }
 
         if (!resolvedItemId.HasValue || resolvedItemId.Value == UUID.Zero)
@@ -2234,6 +2252,85 @@ public sealed class SecondLifeBotSession(
 
         throw new KeyNotFoundException(
             $"Second Life inventory item '{resolvedItemId.Value}' was not found in Munibot's inventory cache.");
+    }
+
+    private UUID? ResolveInventoryItemIdByFolderContents(
+        string itemPath,
+        UUID rootFolderId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var segments = itemPath
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (segments.Length == 0)
+        {
+            return null;
+        }
+
+        var stepTimeout = TimeSpan.FromSeconds(Math.Min(10, Math.Max(2, timeout.TotalSeconds / (segments.Length + 1))));
+        var currentFolderId = rootFolderId;
+
+        for (var i = 0; i < segments.Length - 1; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var segment = segments[i];
+            var contents = _client.Inventory.FolderContents(
+                currentFolderId,
+                _client.Self.AgentID,
+                fetchFolders: true,
+                fetchItems: false,
+                InventorySortOrder.ByName,
+                stepTimeout,
+                followLinks: true);
+
+            var nextFolder = contents
+                .OfType<InventoryFolder>()
+                .FirstOrDefault(folder => string.Equals(folder.Name, segment, StringComparison.OrdinalIgnoreCase));
+
+            if (nextFolder is null)
+            {
+                logger.LogWarning(
+                    "Second Life inventory path segment was not found path={ItemPath} missingSegment={Segment} parentFolder={ParentFolderId} availableFolders={AvailableFolders}",
+                    itemPath,
+                    segment,
+                    currentFolderId,
+                    string.Join(", ", contents.OfType<InventoryFolder>().Select(folder => folder.Name).Take(12)));
+                return null;
+            }
+
+            currentFolderId = nextFolder.UUID;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var itemName = segments[^1];
+        var finalContents = _client.Inventory.FolderContents(
+            currentFolderId,
+            _client.Self.AgentID,
+            fetchFolders: false,
+            fetchItems: true,
+            InventorySortOrder.ByName,
+            stepTimeout,
+            followLinks: true);
+
+        var item = finalContents
+            .OfType<InventoryItem>()
+            .FirstOrDefault(candidate => string.Equals(candidate.Name, itemName, StringComparison.OrdinalIgnoreCase));
+
+        if (item is null)
+        {
+            logger.LogWarning(
+                "Second Life inventory item was not found in resolved folder path={ItemPath} itemName={ItemName} parentFolder={ParentFolderId} availableItems={AvailableItems}",
+                itemPath,
+                itemName,
+                currentFolderId,
+                string.Join(", ", finalContents.OfType<InventoryItem>().Select(candidate => candidate.Name).Take(12)));
+            return null;
+        }
+
+        return item.UUID;
     }
 
     private static InventoryItemDto ToInventoryItemDto(InventoryItem item)
