@@ -261,7 +261,8 @@ public sealed partial class SecondLifeAccountHistoryClient(
             throw new InvalidOperationException("Second Life account-history payload had an unexpected format.");
         }
 
-        var rows = new List<AccountHistoryTransactionDto>();
+        var rows = new List<(AccountHistoryTransactionDto Transaction, int SourceIndex)>();
+        var sourceIndex = 0;
         foreach (var transactionElement in document.Root!.Elements("transaction"))
         {
             var transactionId = transactionElement.Element("id")?.Value?.Trim();
@@ -282,19 +283,25 @@ public sealed partial class SecondLifeAccountHistoryClient(
                 continue;
             }
 
-            rows.Add(new AccountHistoryTransactionDto(
-                transactionId!,
-                NullIfWhiteSpace(transactionElement.Element("type")?.Value),
-                NullIfWhiteSpace(transactionElement.Element("description")?.Value),
-                NullIfWhiteSpace(transactionElement.Element("resident")?.Value),
-                occurredAtUtc.ToUniversalTime(),
-                endBalance,
-                null));
+            rows.Add((
+                new AccountHistoryTransactionDto(
+                    transactionId!,
+                    NullIfWhiteSpace(transactionElement.Element("type")?.Value),
+                    NullIfWhiteSpace(transactionElement.Element("description")?.Value),
+                    NullIfWhiteSpace(transactionElement.Element("resident")?.Value),
+                    occurredAtUtc.ToUniversalTime(),
+                    endBalance,
+                    null),
+                sourceIndex++));
         }
 
+        // Second Life returns account history newest first and timestamps rows only to
+        // the second. Reverse source order within a timestamp tie so adjacent ending
+        // balances remain in their actual chronological sequence.
         var ordered = rows
-            .OrderBy(x => x.OccurredAtUtc)
-            .ThenBy(x => x.TransactionId, StringComparer.Ordinal)
+            .OrderBy(x => x.Transaction.OccurredAtUtc)
+            .ThenByDescending(x => x.SourceIndex)
+            .Select(x => x.Transaction)
             .ToList();
 
         for (var i = 1; i < ordered.Count; i++)

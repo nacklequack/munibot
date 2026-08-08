@@ -176,6 +176,99 @@ public sealed class SecondLifeAccountHistoryClientTests
     }
 
     [Fact]
+    public async Task GetTransactionsAsync_SameSecondRows_PreserveChronologicalBalanceSequence()
+    {
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri?.AbsolutePath == "/openid/login")
+            {
+                return Html("""<form id="loginform"><input type="hidden" name="csrf" value="abc" /></form>""");
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/openid/loginsubmit")
+            {
+                return Html("""<form id="openid_message"><input type="hidden" name="openid.mode" value="id_res" /></form>""");
+            }
+
+            if (request.RequestUri?.AbsolutePath == "/openid/openidserver")
+            {
+                return Html("<html>ok</html>");
+            }
+
+            if (request.RequestUri?.Host == "accounts.secondlife.com")
+            {
+                return Xml("""
+                    <transactions>
+                      <transaction>
+                        <id>bbbbbbbb-bbbb-bbbb-bbbb-000000000003</id>
+                        <type>Payment</type>
+                        <description>Dorm 206</description>
+                        <resident>Tenant Resident</resident>
+                        <time>2026-08-07 15:33:33</time>
+                        <end_balance>5160</end_balance>
+                      </transaction>
+                      <transaction>
+                        <id>00000000-0000-0000-0000-000000000001</id>
+                        <type>Gift</type>
+                        <description>Second payout</description>
+                        <resident>Second Resident</resident>
+                        <time>2026-08-07 09:50:26</time>
+                        <end_balance>5000</end_balance>
+                      </transaction>
+                      <transaction>
+                        <id>ffffffff-ffff-ffff-ffff-000000000002</id>
+                        <type>Gift</type>
+                        <description>First payout</description>
+                        <resident>First Resident</resident>
+                        <time>2026-08-07 09:50:26</time>
+                        <end_balance>10757</end_balance>
+                      </transaction>
+                      <transaction>
+                        <id>aaaaaaaa-aaaa-aaaa-aaaa-000000000004</id>
+                        <type>Payment</type>
+                        <description>Earlier baseline</description>
+                        <resident>Earlier Resident</resident>
+                        <time>2026-08-07 09:00:00</time>
+                        <end_balance>16514</end_balance>
+                      </transaction>
+                    </transactions>
+                    """);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        var client = CreateClient(handler);
+
+        var result = await client.GetTransactionsAsync(
+            new DateTimeOffset(2026, 8, 7, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 8, 8, 0, 0, 0, TimeSpan.Zero),
+            CancellationToken.None);
+
+        Assert.Collection(
+            result.Transactions,
+            transaction =>
+            {
+                Assert.Equal("aaaaaaaa-aaaa-aaaa-aaaa-000000000004", transaction.TransactionId);
+                Assert.Null(transaction.InferredAmountDelta);
+            },
+            transaction =>
+            {
+                Assert.Equal("ffffffff-ffff-ffff-ffff-000000000002", transaction.TransactionId);
+                Assert.Equal(-5757, transaction.InferredAmountDelta);
+            },
+            transaction =>
+            {
+                Assert.Equal("00000000-0000-0000-0000-000000000001", transaction.TransactionId);
+                Assert.Equal(-5757, transaction.InferredAmountDelta);
+            },
+            transaction =>
+            {
+                Assert.Equal("bbbbbbbb-bbbb-bbbb-bbbb-000000000003", transaction.TransactionId);
+                Assert.Equal(160, transaction.InferredAmountDelta);
+            });
+    }
+
+    [Fact]
     public async Task GetTransactionsAsync_RejectsUnexpectedXmlPayload()
     {
         var handler = new RecordingHandler(request =>
