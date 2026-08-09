@@ -37,6 +37,7 @@ public sealed class WalletEventMapperTests
         Assert.Equal("Payment", result.TransactionType);
         Assert.Equal("Rental payment", result.Description);
         Assert.Equal(occurredAt, result.OccurredAtUtc);
+        Assert.Equal(botId.ToString(), result.BotAgentUuid);
     }
 
     [Fact]
@@ -84,6 +85,7 @@ public sealed class WalletEventMapperTests
         Assert.Equal("Payment", result.TransactionType);
         Assert.Equal("Rental payment", result.Description);
         Assert.Equal(occurredAt, result.OccurredAtUtc);
+        Assert.Equal(botId.ToString(), result.BotAgentUuid);
     }
 
     [Fact]

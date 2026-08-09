@@ -104,6 +104,9 @@ public sealed class MunibaseWalletEventPublisher(
             ["source"] = walletEvent.SourceAvatarUuid ?? string.Empty,
             ["target"] = walletEvent.TargetAvatarUuid ?? string.Empty,
             ["transaction"] = walletEvent.TransactionType ?? string.Empty,
-            ["description"] = walletEvent.Description ?? string.Empty
+            ["description"] = walletEvent.Description ?? string.Empty,
+            // Munibase uses the bot's own UUID to classify transaction direction; the
+            // community record no longer stores it, so the event identifies the bot.
+            ["bot"] = walletEvent.BotAgentUuid ?? string.Empty
         };
 }
