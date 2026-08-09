@@ -38,7 +38,8 @@ public sealed class MunibaseWalletEventPublisherTests
             "00000000-0000-0000-0000-000000000001",
             "Payment",
             "Rental payment",
-            DateTimeOffset.UtcNow));
+            DateTimeOffset.UtcNow,
+            "00000000-0000-0000-0000-000000000001"));
 
         Assert.True(result.Enabled);
         Assert.True(result.Delivered);
@@ -54,6 +55,7 @@ public sealed class MunibaseWalletEventPublisherTests
         Assert.Contains("target=00000000-0000-0000-0000-000000000001", body);
         Assert.Contains("transaction=Payment", body);
         Assert.Contains("description=Rental+payment", body);
+        Assert.Contains("bot=00000000-0000-0000-0000-000000000001", body);
     }
 
     [Fact]

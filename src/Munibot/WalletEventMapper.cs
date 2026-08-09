@@ -80,7 +80,8 @@ public static class WalletEventMapper
             string.IsNullOrWhiteSpace(description)
                 ? ReadString(info, "Description", "ItemDescription")
                 : description,
-            occurredAtUtc);
+            occurredAtUtc,
+            botAgentId.ToString());
     }
 
     public static WalletEventDto FromOutgoingPaymentResult(
@@ -99,7 +100,8 @@ public static class WalletEventMapper
             targetAvatarId.ToString(),
             "Gift",
             string.IsNullOrWhiteSpace(reply.Description) ? description : reply.Description,
-            occurredAtUtc);
+            occurredAtUtc,
+            botAgentId.ToString());
 
     public static WalletEventDto? FromAccountHistoryTransaction(
         AccountHistoryTransactionDto transaction,
@@ -131,7 +133,8 @@ public static class WalletEventMapper
             botAgentId.ToString(),
             transaction.Type,
             transaction.Description,
-            transaction.OccurredAtUtc);
+            transaction.OccurredAtUtc,
+            botAgentId.ToString());
     }
 
     private static string? ReadUuidString(object? source, params string[] names)

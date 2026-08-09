@@ -9,7 +9,8 @@ public sealed record WalletEventDto(
     string? TargetAvatarUuid,
     string? TransactionType,
     string? Description,
-    DateTimeOffset OccurredAtUtc);
+    DateTimeOffset OccurredAtUtc,
+    string? BotAgentUuid = null);
 
 public sealed record WalletEventDeliveryResultDto(
     bool Enabled,
