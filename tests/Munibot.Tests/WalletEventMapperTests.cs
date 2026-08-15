@@ -128,6 +128,97 @@ public sealed class WalletEventMapperTests
         Assert.Equal(160, result.Amount);
     }
 
+    [Fact]
+    public void IsIncomingCredit_AcceptsPaymentFromAnotherAvatarToTheBot()
+    {
+        var botId = UUID.Parse("00000000-0000-0000-0000-000000000001");
+
+        var walletEvent = WalletEventMapper.FromTransactionDetails(
+            true,
+            1234,
+            "txn-incoming",
+            new FakeTransactionInfo
+            {
+                Amount = -700,
+                SourceID = "11111111-1111-1111-1111-111111111111",
+                DestID = botId.ToString(),
+                TransactionType = "Payment"
+            },
+            "Rental payment",
+            botId,
+            DateTimeOffset.UtcNow);
+
+        Assert.True(WalletEventMapper.IsIncomingCredit(walletEvent, botId.ToString()));
+    }
+
+    [Fact]
+    public void IsIncomingCredit_RejectsPaymentSentByTheBot()
+    {
+        var botId = UUID.Parse("00000000-0000-0000-0000-000000000001");
+
+        var walletEvent = WalletEventMapper.FromTransactionDetails(
+            true,
+            1234,
+            "txn-outgoing",
+            new FakeTransactionInfo
+            {
+                Amount = -700,
+                SourceID = botId.ToString(),
+                DestID = "11111111-1111-1111-1111-111111111111",
+                TransactionType = "Gift"
+            },
+            "Refund",
+            botId,
+            DateTimeOffset.UtcNow);
+
+        Assert.False(WalletEventMapper.IsIncomingCredit(walletEvent, botId.ToString()));
+    }
+
+    [Fact]
+    public void IsIncomingCredit_RejectsOutgoingPaymentThatCarriedNoTarget()
+    {
+        var botId = UUID.Parse("00000000-0000-0000-0000-000000000001");
+
+        // Mapping substitutes the bot for the absent target, which would otherwise read as
+        // a credit to the bot. The source being the bot is what disqualifies it.
+        var walletEvent = WalletEventMapper.FromTransactionDetails(
+            true,
+            1234,
+            "txn-no-target",
+            new { Amount = -700, SourceID = botId.ToString() },
+            "Refund",
+            botId,
+            DateTimeOffset.UtcNow);
+
+        Assert.NotNull(walletEvent);
+        Assert.Equal(botId.ToString(), walletEvent.TargetAvatarUuid);
+        Assert.False(WalletEventMapper.IsIncomingCredit(walletEvent, botId.ToString()));
+    }
+
+    [Fact]
+    public void IsIncomingCredit_RejectsZeroAmountAndMissingEvent()
+    {
+        var botId = UUID.Parse("00000000-0000-0000-0000-000000000001");
+
+        var zeroAmount = WalletEventMapper.FromTransactionDetails(
+            true,
+            1234,
+            "txn-zero",
+            new FakeTransactionInfo
+            {
+                Amount = 0,
+                SourceID = "11111111-1111-1111-1111-111111111111",
+                DestID = botId.ToString(),
+                TransactionType = "Payment"
+            },
+            "Zero",
+            botId,
+            DateTimeOffset.UtcNow);
+
+        Assert.False(WalletEventMapper.IsIncomingCredit(zeroAmount, botId.ToString()));
+        Assert.False(WalletEventMapper.IsIncomingCredit(null, botId.ToString()));
+    }
+
     private sealed class FakeTransactionInfo
     {
         public int Amount { get; init; }

@@ -22,6 +22,23 @@ public static class WalletEventMapper
             DateTimeOffset.UtcNow);
     }
 
+    /// <summary>
+    /// True when the event describes L$ arriving at the bot from someone else. Amounts are
+    /// mapped as absolutes, so direction is read from the two parties rather than the sign.
+    /// A missing party is substituted with the bot during mapping, so requiring the
+    /// counterparty to differ also rejects an outgoing payment that carried no target.
+    /// </summary>
+    public static bool IsIncomingCredit(WalletEventDto? walletEvent, string botAgentUuid)
+    {
+        if (walletEvent is null || walletEvent.Amount is not > 0 || string.IsNullOrWhiteSpace(botAgentUuid))
+        {
+            return false;
+        }
+
+        return string.Equals(walletEvent.TargetAvatarUuid, botAgentUuid, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(walletEvent.SourceAvatarUuid, botAgentUuid, StringComparison.OrdinalIgnoreCase);
+    }
+
     public static WalletEventDto? FromTransactionDetails(
         bool success,
         int balance,
