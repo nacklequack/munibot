@@ -2576,6 +2576,23 @@ public sealed class SecondLifeBotSession(
             {
                 await PublishWalletEventAsync(eventArgs);
             }
+            else if (delta is null && ResolveIncomingWalletEvent(eventArgs) is { } incoming)
+            {
+                // No balance has been observed yet in this process, so there is nothing to
+                // difference against and the delta cannot say whether L$ came in. Falling
+                // back to account history here loses the payment: the lookback runs seconds
+                // after the money event and Second Life publishes account history minutes
+                // later, so the reconcile finds nothing and nothing is delivered. The reply
+                // itself already carries the amount and both parties, which is sufficient
+                // on its own. Delivery is deduplicated by transaction id, so a later
+                // account-history import of the same transaction is harmless.
+                logger.LogInformation(
+                    "Wallet balance reply transaction={TransactionId} arrived before any balance was observed; publishing L${Amount} directly from the reply's own transaction details.",
+                    incoming.TransactionId,
+                    incoming.Amount);
+
+                await PublishWalletEventAsync(incoming);
+            }
             else if (eventArgs.TransactionID != UUID.Zero)
             {
                 await ReconcileWalletBalanceReplyTransactionAsync(
@@ -2598,6 +2615,21 @@ public sealed class SecondLifeBotSession(
                 "Wallet balance reply handling failed unexpectedly transaction={TransactionId}",
                 eventArgs.TransactionID);
         }
+    }
+
+    /// <summary>
+    /// Maps a balance reply to a wallet event when, and only when, its own transaction
+    /// details describe L$ arriving from someone else. Used when no balance delta is
+    /// available to establish direction. The mapper returns an absolute amount, so
+    /// direction has to come from the two parties rather than the sign.
+    /// </summary>
+    private WalletEventDto? ResolveIncomingWalletEvent(MoneyBalanceReplyEventArgs eventArgs)
+    {
+        var walletEvent = WalletEventMapper.FromMoneyBalanceReply(eventArgs, _client.Self.AgentID);
+
+        return WalletEventMapper.IsIncomingCredit(walletEvent, _client.Self.AgentID.ToString())
+            ? walletEvent
+            : null;
     }
 
     private (int? PreviousBalance, int? Delta) ObserveWalletBalance(int balance)
