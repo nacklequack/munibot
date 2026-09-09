@@ -94,7 +94,11 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         var items = await client.Inventory.GetTaskInventoryAsync(primitive.ID, primitive.LocalID, simulator, ct);
         // LibreMetaverse returns an empty list on cancellation, including during the inventory transfer.
         ct.ThrowIfCancellationRequested();
-        return items.OfType<InventoryItem>().ToList();
+        var snapshot = items.OfType<InventoryItem>().ToList();
+        if (snapshot.Count == 0)
+            throw new TaskInventoryException("inventory_unconfirmed",
+                "The complete inventory response was empty. Confirm readable object inventory before retrying.", true, true);
+        return snapshot;
     }
 
     private async Task<byte[]> ReadSourceAsync(InventoryItem item, CancellationToken ct)

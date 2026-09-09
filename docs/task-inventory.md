@@ -17,6 +17,9 @@ Inspection accepts `region`, `position: {x,y,z}`, and `names` (1–64 exact name
 It returns `objectUuid` and `items`, including task item and asset IDs, type,
 modify/copy/transfer permissions, normalized source SHA-256, and script running
 state. A failed inspection is an error, never an empty inventory result.
+An empty complete task-inventory snapshot is also unconfirmed; it cannot authorize
+item creation. A successful snapshot may return no matches for the requested names
+while still containing other inventory, such as the distributor runtime.
 
 A write accepts:
 
@@ -66,6 +69,8 @@ from request diagnostics even when body logging is enabled.
 Provide the scoped token as `MUNIBOT_TASK_TOKEN` through private configuration.
 Run PowerShell 7 with `scripts/test-task-inventory.ps1`, supplying `-BotUrl`,
 `-ObjectUuid`, `-Region`, `-X`, `-Y`, and `-Z` for the authorized disposable object.
+Put an unrelated seed notecard in the disposable object first so its complete
+inventory is readable and nonempty. The harness leaves that seed untouched.
 The harness refuses existing probe names, then tests creation, same-item update,
 stopped state, compilation failure/repair, notecard replacement, and readback.
 It leaves its two named probe items for manual inspection and cleanup.

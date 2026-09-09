@@ -39,7 +39,7 @@ function Write-Probe([string]$name, [string]$kind, [string]$source) {
     return $result
 }
 
-if (@((Inspect-Probes).items).Count -ne 0) { throw 'Disposable probe names already exist. Inspect them manually before using another empty target.' }
+if (@((Inspect-Probes).items).Count -ne 0) { throw 'Disposable probe names already exist. Inspect them manually before using another target with only an unrelated seed notecard.' }
 $created = Write-Probe $scriptName 'script' 'string SCRIPT_VERSION = "1"; default { state_entry() { } }'
 if (-not $created.success) { throw 'New script did not compile and verify.' }
 $updated = Write-Probe $scriptName 'script' 'string SCRIPT_VERSION = "2"; default { state_entry() { } }'
