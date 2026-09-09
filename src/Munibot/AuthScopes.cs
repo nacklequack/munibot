@@ -3,6 +3,7 @@ namespace Munibot;
 public static class AuthScopes
 {
     public const string RosterRead = "sl.roster.read";
+    public const string TrafficRead = "sl.traffic.read";
     public const string GroupInvite = "sl.group.invite";
     public const string GroupEject = "sl.group.eject";
     public const string GroupBanRead = "sl.group.ban.read";
