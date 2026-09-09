@@ -255,6 +255,10 @@ Invoke-RestMethod http://127.0.0.1:5107/api/textures `
 
 Texture upload requires `confirmUploadFee: true` because Second Life may charge the bot account's upload fee depending on account benefits. Wallet/balance events are the source of truth for whether L$ were actually deducted.
 
+Rezzed object script/notecard inspection and verified source updates use the separate
+`sl.inventory.task.write` scope. See [task inventory transport](docs/task-inventory.md)
+for the wire contract, timeout recovery, and disposable-object acceptance harness.
+
 ## Wallet
 
 Fetch the current in-world Linden balance:

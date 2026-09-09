@@ -19,6 +19,7 @@ public static class MunibotAuthentication
 
         if (configuredTokens.Count == 0)
         {
+            if (TaskInventoryEndpoints.IsSensitivePath(context.Request.Path)) return false;
             principal = new MunibotTokenPrincipal(
                 "anonymous-dev",
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "*" });

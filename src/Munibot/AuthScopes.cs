@@ -18,6 +18,7 @@ public static class AuthScopes
     public const string TextureUpload = "sl.texture.upload";
     public const string InventoryGive = "sl.inventory.give";
     public const string InventoryRez = "sl.inventory.rez";
+    public const string TaskInventoryWrite = "sl.inventory.task.write";
     public const string WalletRead = "sl.wallet.read";
     public const string WalletHistory = "sl.wallet.history";
     public const string WalletPay = "sl.wallet.pay";
