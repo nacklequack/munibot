@@ -34,6 +34,18 @@ public sealed class TaskInventoryWriterTests
     }
 
     [Fact]
+    public async Task EmptyExistingItemIsUpdatedByItsIdentityWithoutCreatingAnotherCopy()
+    {
+        var completed = Item();
+        var empty = completed with { AssetId = Guid.Empty.ToString(), Running = null, SourceSha256 = "" };
+        var target = new FakeTarget { Before = [empty], After = [completed] };
+        var result = await new TaskInventoryWriter(target).WriteAsync(Name, Request(), default);
+        Assert.True(result.Success);
+        Assert.Equal(empty.ItemId, target.Existing!.ItemId);
+        Assert.Equal(empty.ItemId, result.Item!.ItemId);
+    }
+
+    [Fact]
     public async Task InventoryTimeoutNeverCreatesAnItem()
     {
         var target = new FakeTarget { ReadFailure = new TimeoutException() };

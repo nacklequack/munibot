@@ -17,7 +17,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             var modify = Has(item, PermissionMask.Modify);
             var hash = "";
             bool? running = null;
-            if (modify && kind is "script" or "notecard")
+            if (modify && item.AssetUUID != UUID.Zero && kind is "script" or "notecard")
             {
                 hash = TaskInventoryContent.Hash(await ReadSourceAsync(item, ct));
                 if (kind == "script") running = await ReadRunningAsync(item.UUID, ct);
@@ -153,10 +153,16 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
 
         // Await both CAPS stages directly. The SDK convenience method dispatches the final upload in a detached Task.
         var handshake = await client.HttpCapsClient.PostAsync(capability, OSDFormat.Xml, body, ct);
+        using var handshakeResponse = handshake.response;
+        if (!handshakeResponse.IsSuccessStatusCode)
+            throw new TaskInventoryException("upload_rejected", "The simulator rejected the upload handshake.", true);
         if (OSDParser.Deserialize(handshake.data) is not OSDMap response || response["state"].AsString() != "upload" ||
             !Uri.TryCreate(response["uploader"].AsString(), UriKind.Absolute, out var uploader) || uploader.Scheme != "https")
             throw new TaskInventoryException("upload_rejected", "The simulator rejected the upload handshake.", true);
         var uploaded = await client.HttpCapsClient.PostAsync(uploader, "application/octet-stream", source, ct);
+        using var uploadResponse = uploaded.response;
+        if (!uploadResponse.IsSuccessStatusCode)
+            throw new TaskInventoryException("upload_unconfirmed", "The simulator did not confirm the final upload. Inspect before retrying.", true, true);
         return TaskInventoryAssetCodec.ReadCompletion(OSDParser.Deserialize(uploaded.data), script);
     }
 
