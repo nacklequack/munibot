@@ -7,7 +7,7 @@ using System.Reflection;
 
 namespace Munibot;
 
-public sealed class SecondLifeBotSession(
+public sealed partial class SecondLifeBotSession(
     BotConfig config,
     ILogger<SecondLifeBotSession> logger,
     ISecondLifeAccountHistoryClient accountHistoryClient,
