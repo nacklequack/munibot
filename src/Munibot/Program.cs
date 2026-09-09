@@ -43,6 +43,7 @@ try
     var app = builder.Build();
 
     app.UseMiddleware<RequestDiagnosticsMiddleware>();
+    app.MapTaskInventoryEndpoints();
 
     app.MapTrafficEndpoints();
 

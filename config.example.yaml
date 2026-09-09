@@ -29,6 +29,7 @@ api:
   group_operation_timeout_seconds: 30
   inventory_operation_timeout_seconds: 30
   texture_upload_timeout_seconds: 60
+  task_inventory_timeout_seconds: 120
   wallet_operation_timeout_seconds: 30
   estate_operation_timeout_seconds: 30
 
@@ -79,8 +80,9 @@ lsl_commands:
   # shared_secret: replace-with-lsl-command-secret
   max_sit_distance_meters: 5
 
-# If no tokens are configured, API calls are allowed for local development.
+# If no tokens are configured, API calls except task-inventory access are allowed for local development.
 # Configure tokens in production. Send either X-Munibot-Token or Authorization: Bearer.
+# Replenishment requires an explicitly provisioned token with sl.inventory.task.write.
 tokens:
   - id: munibase
     value: replace-with-long-random-token
