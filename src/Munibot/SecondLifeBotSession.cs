@@ -2198,9 +2198,8 @@ public sealed partial class SecondLifeBotSession(
                 itemPath,
                 rootFolderId);
 
-            resolvedItemId = await Task.Run(
-                () => ResolveInventoryItemIdByFolderContents(itemPath, rootFolderId, timeout, cancellationToken),
-                cancellationToken);
+            resolvedItemId = await ResolveInventoryItemIdByFolderContentsAsync(
+                itemPath, rootFolderId, timeout, cancellationToken);
 
             if (!resolvedItemId.HasValue || resolvedItemId.Value == UUID.Zero)
             {
@@ -2254,7 +2253,7 @@ public sealed partial class SecondLifeBotSession(
             $"Second Life inventory item '{resolvedItemId.Value}' was not found in Munibot's inventory cache.");
     }
 
-    private UUID? ResolveInventoryItemIdByFolderContents(
+    private async Task<UUID?> ResolveInventoryItemIdByFolderContentsAsync(
         string itemPath,
         UUID rootFolderId,
         TimeSpan timeout,
@@ -2276,14 +2275,12 @@ public sealed partial class SecondLifeBotSession(
             cancellationToken.ThrowIfCancellationRequested();
 
             var segment = segments[i];
-            var contents = _client.Inventory.FolderContents(
+            var contents = await ReadInventoryFolderAsync(
                 currentFolderId,
-                _client.Self.AgentID,
                 fetchFolders: true,
                 fetchItems: false,
-                InventorySortOrder.ByName,
                 stepTimeout,
-                followLinks: true);
+                cancellationToken);
 
             var nextFolder = contents
                 .OfType<InventoryFolder>()
@@ -2306,14 +2303,12 @@ public sealed partial class SecondLifeBotSession(
         cancellationToken.ThrowIfCancellationRequested();
 
         var itemName = segments[^1];
-        var finalContents = _client.Inventory.FolderContents(
+        var finalContents = await ReadInventoryFolderAsync(
             currentFolderId,
-            _client.Self.AgentID,
             fetchFolders: false,
             fetchItems: true,
-            InventorySortOrder.ByName,
             stepTimeout,
-            followLinks: true);
+            cancellationToken);
 
         var item = finalContents
             .OfType<InventoryItem>()
@@ -2331,6 +2326,33 @@ public sealed partial class SecondLifeBotSession(
         }
 
         return item.UUID;
+    }
+
+    private async Task<List<InventoryBase>> ReadInventoryFolderAsync(
+        UUID folderId,
+        bool fetchFolders,
+        bool fetchItems,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        using var lookupTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lookupTimeout.CancelAfter(timeout);
+        try
+        {
+            return await _client.Inventory.FolderContentsAsync(
+                folderId,
+                _client.Self.AgentID,
+                fetchFolders,
+                fetchItems,
+                InventorySortOrder.ByName,
+                lookupTimeout.Token,
+                followLinks: true);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && lookupTimeout.IsCancellationRequested)
+        {
+            // Preserve the path-lookup fallback after a folder timeout; caller cancellation still propagates.
+            return [];
+        }
     }
 
     private static InventoryItemDto ToInventoryItemDto(InventoryItem item)
