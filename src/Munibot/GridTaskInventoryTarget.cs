@@ -1,12 +1,14 @@
-using System.Text;
 using OpenMetaverse;
-using OpenMetaverse.Assets;
 using OpenMetaverse.StructuredData;
 
 namespace Munibot;
 
 internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simulator, Primitive primitive) : ITaskInventoryTarget
 {
+    private readonly TaskInventoryAssetReader sourceReader = new((item, callback) =>
+        client.Assets.RequestInventoryAsset(item.AssetUUID, item.UUID, primitive.ID, item.OwnerID,
+            item.AssetType, true, UUID.Random(), callback));
+
     public async Task<IReadOnlyList<TaskInventoryItemDto>> InspectAsync(IReadOnlyList<string> names, CancellationToken ct)
     {
         var inventory = await ReadInventoryAsync(ct);
@@ -16,13 +18,16 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             var kind = Kind(item.AssetType);
             var modify = Has(item, PermissionMask.Modify);
             var hash = "";
+            var assetId = item.AssetUUID;
             bool? running = null;
-            if (modify && item.AssetUUID != UUID.Zero && kind is "script" or "notecard")
+            if (modify && kind is "script" or "notecard")
             {
-                hash = TaskInventoryContent.Hash(await ReadSourceAsync(item, ct));
+                var source = await sourceReader.ReadAsync(item, ct);
+                assetId = source.AssetId;
+                hash = TaskInventoryContent.Hash(source.Source);
                 if (kind == "script") running = await ReadRunningAsync(item.UUID, ct);
             }
-            results.Add(new(item.Name, item.UUID.ToString(), item.AssetUUID.ToString(), kind,
+            results.Add(new(item.Name, item.UUID.ToString(), assetId.ToString(), kind,
                 modify, Has(item, PermissionMask.Copy), Has(item, PermissionMask.Transfer), running, hash));
         }
         return results;
@@ -76,7 +81,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             else
             {
                 var current = (await ReadInventoryAsync(ct)).SingleOrDefault(x => x.UUID == itemId && x.Name == name);
-                if (current is null || current.AssetUUID.ToString() != existing.AssetId)
+                if (current is null || (await sourceReader.ReadAssetIdAsync(current, ct)).ToString() != existing.AssetId)
                     throw new TaskInventoryException("inventory_changed", "The inventory changed during this operation. Inspect before retrying.", true);
             }
             return await UploadAssetAsync(itemId, contentType, source, true, ct);
@@ -99,24 +104,6 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             throw new TaskInventoryException("inventory_unconfirmed",
                 "The complete inventory response was empty. Confirm readable object inventory before retrying.", true, true);
         return snapshot;
-    }
-
-    private async Task<byte[]> ReadSourceAsync(InventoryItem item, CancellationToken ct)
-    {
-        if (item.AssetUUID == UUID.Zero)
-            throw new TaskInventoryException("asset_unavailable", "The inventory item has no readable source asset.", true);
-        var completion = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
-        client.Assets.RequestInventoryAsset(item.AssetUUID, item.UUID, primitive.ID, item.OwnerID,
-            item.AssetType, true, UUID.Random(), (transfer, asset) =>
-            {
-                if (transfer.Success && asset?.AssetData is { Length: > 0 } data) completion.TrySetResult(data);
-                else completion.TrySetException(new TaskInventoryException("source_unreadable", "The source asset could not be read.", true));
-            });
-        var bytes = await completion.Task.WaitAsync(ct);
-        if (item.AssetType != AssetType.Notecard) return bytes;
-        var notecard = new AssetNotecard(item.AssetUUID, bytes);
-        if (!notecard.Decode()) throw new TaskInventoryException("invalid_notecard", "The notecard asset could not be decoded.");
-        return Encoding.UTF8.GetBytes(notecard.BodyText);
     }
 
     private async Task<bool> ReadRunningAsync(UUID itemId, CancellationToken ct)
