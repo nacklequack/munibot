@@ -12,9 +12,17 @@ also accept new source without group sharing.
 
 Before copying new source to a shared target, Munibot prepares group sharing on
 its temporary bot-owned inventory item through the inventory API. Only the group
-ID and group move/modify/copy mask are patched. The bot waits for acknowledgement,
-fetches the item again, and verifies its source identity and other permissions.
+move/modify/copy mask is patched. The bot waits for acknowledgement, fetches the
+item again, and verifies its source identity and other permissions. A temporary
+item in agent inventory may report no assigned group. Munibot supplies the
+verified destination group on a detached copy when sending it to task inventory.
 Ownership, everyone access, and next-owner permissions remain unchanged.
+
+When agent-inventory metadata hides the asset ID, the bot downloads the source
+using its inventory item ID and owner, without a task ID. The resolved asset ID
+must match the completed upload. A missing, denied, cancelled, or mismatched
+download cannot authorize a copy; the uploaded asset ID is never substituted
+as evidence of readback.
 
 The copied task item must retain the expected sharing before the final upload
 and source readback. Scripts remain stopped. Existing-item updates preserve the

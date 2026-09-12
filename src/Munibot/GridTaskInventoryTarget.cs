@@ -10,6 +10,11 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             item.AssetType, true, UUID.Random(), callback),
         item => TaskInventorySourceDiagnosticsDto.Capture(client.Self.AgentID, client.Self.ActiveGroup, primitive.ID, item));
 
+    private readonly TaskInventoryAssetReader agentSourceReader = new((item, callback) =>
+        client.Assets.RequestInventoryAsset(item.AssetUUID, item.UUID, UUID.Zero, item.OwnerID,
+            item.AssetType, true, UUID.Random(), callback),
+        item => TaskInventorySourceDiagnosticsDto.Capture(client.Self.AgentID, client.Self.ActiveGroup, UUID.Zero, item));
+
     public async Task<IReadOnlyList<TaskInventoryItemDto>> InspectAsync(IReadOnlyList<string> names, CancellationToken ct)
     {
         var inventory = await ReadInventoryAsync(ct);
@@ -65,7 +70,8 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                 temporary.AssetUUID = UUID.Parse(agentResult.AssetId!);
                 temporary = await new TaskInventorySharing(
                     (id, changes, token) => client.AisClient.UpdateItemAsync(id, changes, token),
-                    (id, owner, token) => client.Inventory.FetchItemAsync(id, owner, token))
+                    (id, owner, token) => client.Inventory.FetchItemAsync(id, owner, token),
+                    agentSourceReader.ReadAssetIdAsync)
                     .PrepareAsync(temporary, client.Self.AgentID, sourceGroup, ct);
                 EnsureSimulator();
                 if (contentType == "script")

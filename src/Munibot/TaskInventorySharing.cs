@@ -5,7 +5,8 @@ namespace Munibot;
 
 public sealed class TaskInventorySharing(
     Func<UUID, OSDMap, CancellationToken, Task<bool>> update,
-    Func<UUID, UUID, CancellationToken, Task<InventoryItem?>> fetch)
+    Func<UUID, UUID, CancellationToken, Task<InventoryItem?>> fetch,
+    Func<InventoryItem, CancellationToken, Task<UUID>> resolveAssetId)
 {
     public const PermissionMask SharedSourceMask = PermissionMask.Move | PermissionMask.Modify | PermissionMask.Copy;
 
@@ -38,7 +39,6 @@ public sealed class TaskInventorySharing(
         {
             ["permissions"] = new OSDMap
             {
-                ["group_id"] = OSD.FromUUID(groupId),
                 // Inventory masks are LLSD integers; FromUInteger emits binary data.
                 ["group_mask"] = OSD.FromInteger((uint)groupMask)
             }
@@ -46,8 +46,10 @@ public sealed class TaskInventorySharing(
         if (!await update(before.UUID, changes, ct))
             throw new TaskInventoryException("source_sharing_denied", "The temporary source sharing update was rejected. Nothing was copied to the target.");
 
-        var prepared = await fetch(before.UUID, botId, ct);
+        var fetched = await fetch(before.UUID, botId, ct);
         ct.ThrowIfCancellationRequested();
+        // Keep SDK cache updates from changing verified metadata while source retrieval is pending.
+        var prepared = fetched is null ? null : Copy(fetched);
         var differences = new List<string>();
         if (prepared is null) differences.Add("item_missing");
         else
@@ -55,20 +57,30 @@ public sealed class TaskInventorySharing(
             CompareId(differences, "item_id", before.UUID, prepared.UUID);
             CompareId(differences, "owner_id", botId, prepared.OwnerID);
             if (prepared.GroupOwned) differences.Add("group_owned (expected false, observed true)");
-            CompareId(differences, "group_id", groupId, prepared.GroupID);
+            // Agent inventory may have sharing enabled without being assigned to a group.
+            // The verified destination group is applied to the copy sent to task inventory.
+            if (prepared.GroupID != UUID.Zero) CompareId(differences, "group_id", groupId, prepared.GroupID);
             CompareMask(differences, "group_mask", groupMask, prepared.Permissions.GroupMask);
             CompareMask(differences, "base_mask", before.BaseMask, prepared.Permissions.BaseMask);
             CompareMask(differences, "owner_mask", before.OwnerMask, prepared.Permissions.OwnerMask);
             CompareMask(differences, "everyone_mask", before.EveryoneMask, prepared.Permissions.EveryoneMask);
             CompareMask(differences, "next_owner_mask", before.NextOwnerMask, prepared.Permissions.NextOwnerMask);
-            CompareId(differences, "asset_id", before.AssetUUID, prepared.AssetUUID);
+            if (prepared.AssetUUID != UUID.Zero) CompareId(differences, "asset_id", before.AssetUUID, prepared.AssetUUID);
             if (prepared.AssetType != before.AssetType) differences.Add("asset_type");
             if (prepared.Name != before.Name) differences.Add("name");
         }
         if (differences.Count != 0)
             throw new TaskInventoryException("source_sharing_unconfirmed",
                 $"The temporary source sharing and identity were not verified: {string.Join("; ", differences)}. Nothing was copied to the target.", true);
-        return prepared!;
+
+        var resolved = await resolveAssetId(prepared!, ct);
+        ct.ThrowIfCancellationRequested();
+        if (resolved == UUID.Zero || resolved != before.AssetUUID)
+            throw new TaskInventoryException("source_sharing_unconfirmed",
+                "The temporary source asset_id did not match the completed upload after source retrieval. Nothing was copied to the target.", true);
+        prepared!.AssetUUID = resolved;
+        prepared.GroupID = groupId;
+        return prepared;
     }
 
     public static void VerifyCopy(InventoryItem copied, UUID expectedGroup)
@@ -97,4 +109,14 @@ public sealed class TaskInventorySharing(
     }
 
     private static string Mask(PermissionMask mask) => $"0x{(uint)mask:x8}";
+
+    private static InventoryItem Copy(InventoryItem item) => new(item.InventoryType, item.UUID)
+    {
+        ParentUUID = item.ParentUUID, Name = item.Name, OwnerID = item.OwnerID,
+        AssetUUID = item.AssetUUID, Permissions = item.Permissions, AssetType = item.AssetType,
+        CreatorID = item.CreatorID, Description = item.Description, GroupID = item.GroupID,
+        GroupOwned = item.GroupOwned, SalePrice = item.SalePrice, SaleType = item.SaleType,
+        Flags = item.Flags, CreationDate = item.CreationDate, TransactionID = item.TransactionID,
+        LastOwnerID = item.LastOwnerID
+    };
 }
