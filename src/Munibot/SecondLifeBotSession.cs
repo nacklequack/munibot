@@ -1066,6 +1066,7 @@ public sealed partial class SecondLifeBotSession(
         await _inventoryLock.WaitAsync(cancellationToken);
         try
         {
+            await EnsureActiveGroupSettledAsync(cancellationToken);
             var timeout = TimeSpan.FromSeconds(config.Api.InventoryOperationTimeoutSeconds);
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(timeout);
