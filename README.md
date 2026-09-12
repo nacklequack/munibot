@@ -65,7 +65,7 @@ Invoke-RestMethod http://127.0.0.1:5107/ready `
   -Headers @{ Authorization = "Bearer <token>" }
 ```
 
-If no tokens are configured, API calls are allowed for local development only.
+If no tokens are configured, API calls are allowed for local development only, except task-inventory and active-group routes, which always require a configured token.
 
 ## Diagnostics
 
@@ -86,6 +86,44 @@ GET /health
 ```
 
 ## Bot Utilities
+
+Read or change the bot's active group using PowerShell 7. Supply `MUNIBOT_OWNER_TOKEN`
+through private operator configuration with the existing `sl.bot.owner` scope:
+
+```powershell
+./scripts/bot-active-group.ps1 -BotUrl http://127.0.0.1:5107
+./scripts/bot-active-group.ps1 -BotUrl http://127.0.0.1:5107 -GroupId '<group-uuid>'
+```
+
+The operator command calls `GET /api/bot/active-group`, or `PUT` on the same route
+with `{"groupId":"<group-uuid>"}`. GET requests a simulator reply containing
+`groupId`, `groupName`, `groupTitle`, `groupPowers`, `retrievedAt`, and an optional
+`pendingGroupId`. PUT verifies existing membership and waits for an agent-data
+reply confirming the requested group. It returns `success`, `changed`,
+`previousGroupId`, `activeGroup`, `requestedAt`, and `completedAt`. Repeating a
+confirmed selection returns `changed: false`. The all-zero UUID is not accepted;
+this API selects an existing membership and does not join groups or edit roles.
+
+Group activation holds the bot's teleport and inventory locks through confirmation,
+even if the caller disconnects. `api.group_operation_timeout_seconds` (default 30)
+bounds the initial wait/query and, separately, the final activation confirmation.
+Set the caller's timeout above twice that value; the operator command defaults to
+90 seconds and accepts `-TimeoutSeconds`.
+
+If confirmation times out, PUT returns HTTP 503 with `outcomeUnknown: true`.
+Read the active group before retrying. A non-null `pendingGroupId` means the
+earlier activation is still unconfirmed: further group changes, task-inventory
+operations, and object rezzing wait for a query confirming that group or a new
+bot login. A timeout does not trigger another activation automatically.
+HTTP 422 `not_group_member` means no activation was sent; malformed UUIDs return
+400 and unavailable sessions or queries return 503.
+
+This changes the current session's active group. It does not add a configured
+startup group or automatically select a distributor's group while stocking.
+Read it after reconnecting. The bot must also have the required object and
+inventory-item permissions; group membership alone does not grant them.
+The test suite exercises the operator command against the HTTP API and requires
+PowerShell 7 (`pwsh`) alongside .NET 10.
 
 Check the bot location:
 

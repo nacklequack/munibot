@@ -42,6 +42,7 @@ public sealed partial class SecondLifeBotSession
             await _inventoryLock.WaitAsync(token);
             try
             {
+                await EnsureActiveGroupSettledAsync(token);
                 if (!IsCurrentSimulator(regionName) || !IsNearCurrentPosition(destination, 8))
                 {
                     // Keep the region lock until the actual teleport completes, even if its caller disconnects.
@@ -68,6 +69,10 @@ public sealed partial class SecondLifeBotSession
                 return await action(new GridTaskInventoryTarget(_client, simulator, primitive), token);
             }
             finally { _inventoryLock.Release(); }
+        }
+        catch (ActiveGroupException ex)
+        {
+            throw new TaskInventoryException(ex.Code, ex.Message, true, false);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
