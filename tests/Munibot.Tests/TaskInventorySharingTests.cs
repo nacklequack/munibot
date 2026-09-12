@@ -85,7 +85,7 @@ public sealed class TaskInventorySharingTests
         var sharing = Sharing((_, patch, _) =>
         {
             var xml = XDocument.Parse(OSDParser.SerializeLLSDXmlString(patch));
-            var maskKey = Assert.Single(xml.Descendants("key").Where(key => key.Value == "group_mask"));
+            var maskKey = Assert.Single(xml.Descendants("key"), key => key.Value == "group_mask");
             var wireValue = maskKey.ElementsAfterSelf().First();
             Assert.Equal("integer", wireValue.Name.LocalName);
             Assert.Equal("573440", wireValue.Value);
