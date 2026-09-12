@@ -74,7 +74,15 @@ public sealed class TaskInventoryWriter(ITaskInventoryTarget target)
         for (var attempt = 0; attempt < 20; attempt++)
         {
             ct.ThrowIfCancellationRequested();
-            observed = Find(await target.InspectAsync([name], ct), name);
+            try
+            {
+                observed = Find(await target.InspectAsync([name], ct), name);
+            }
+            catch (TaskInventoryException ex)
+            {
+                // The upload has completed, so failed readback cannot establish an unchanged target.
+                throw new TaskInventoryException(ex.Code, ex.Message, ex.Retryable, true, ex.SourceDiagnostics);
+            }
             if (observed is not null && observed.ContentType == request.ContentType &&
                 (result.AssetId is null || observed.AssetId == result.AssetId) &&
                 observed.SourceSha256.Equals(request.ExpectedSha256, StringComparison.OrdinalIgnoreCase) &&

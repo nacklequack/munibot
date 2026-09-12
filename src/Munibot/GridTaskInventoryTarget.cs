@@ -7,7 +7,8 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
 {
     private readonly TaskInventoryAssetReader sourceReader = new((item, callback) =>
         client.Assets.RequestInventoryAsset(item.AssetUUID, item.UUID, primitive.ID, item.OwnerID,
-            item.AssetType, true, UUID.Random(), callback));
+            item.AssetType, true, UUID.Random(), callback),
+        item => TaskInventorySourceDiagnosticsDto.Capture(client.Self.AgentID, client.Self.ActiveGroup, primitive.ID, item));
 
     public async Task<IReadOnlyList<TaskInventoryItemDto>> InspectAsync(IReadOnlyList<string> names, CancellationToken ct)
     {

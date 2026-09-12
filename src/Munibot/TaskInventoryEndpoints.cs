@@ -20,14 +20,17 @@ public static class TaskInventoryEndpoints
         catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         catch (TaskInventoryException ex)
         {
-            return Results.Json(new { errorCode = ex.Code, error = ex.Message, retryable = ex.Retryable, outcomeUnknown = ex.OutcomeUnknown },
-                statusCode: ex.Retryable ? 503 : 422);
+            return ErrorResult(ex);
         }
         catch (HttpRequestException)
         {
             return Results.Json(new { errorCode = "transport_failed", error = "Simulator communication failed. Inspect before retrying.", retryable = true, outcomeUnknown = true }, statusCode: 503);
         }
     }
+
+    public static IResult ErrorResult(TaskInventoryException error) => Results.Json(
+        new TaskInventoryErrorDto(error.Code, error.Message, error.Retryable, error.OutcomeUnknown, error.SourceDiagnostics),
+        statusCode: error.Retryable ? 503 : 422);
 
     public static bool IsSensitivePath(PathString path) =>
         path.StartsWithSegments("/api/objects", StringComparison.OrdinalIgnoreCase) &&

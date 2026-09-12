@@ -17,10 +17,15 @@ public sealed record TaskInventoryWriteResultDto(
     IReadOnlyList<string> CompilationMessages, TaskInventoryItemDto? Item,
     string? ErrorCode, string? Error, bool Retryable, bool OutcomeUnknown = false);
 
-public sealed class TaskInventoryException(string code, string message, bool retryable = false, bool outcomeUnknown = false)
+public sealed record TaskInventoryErrorDto(string ErrorCode, string Error, bool Retryable, bool OutcomeUnknown,
+    TaskInventorySourceDiagnosticsDto? SourceDiagnostics);
+
+public sealed class TaskInventoryException(string code, string message, bool retryable = false, bool outcomeUnknown = false,
+    TaskInventorySourceDiagnosticsDto? sourceDiagnostics = null)
     : Exception(message)
 {
     public string Code { get; } = code;
     public bool Retryable { get; } = retryable;
     public bool OutcomeUnknown { get; } = outcomeUnknown;
+    public TaskInventorySourceDiagnosticsDto? SourceDiagnostics { get; } = sourceDiagnostics;
 }
