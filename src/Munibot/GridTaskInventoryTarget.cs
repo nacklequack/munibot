@@ -39,10 +39,15 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
     {
         var itemId = existing is null ? UUID.Zero : UUID.Parse(existing.ItemId);
         InventoryItem? temporary = null;
+        var temporaryId = UUID.Zero;
         try
         {
             if (existing is null)
             {
+                var targetProperties = await ReadPropertiesAsync(ct);
+                var sourceGroup = TaskInventorySharing.SelectGroup(client.Self.AgentID, client.Self.ActiveGroup, targetProperties);
+                if (sourceGroup != UUID.Zero && !client.AisClient.IsAvailable)
+                    throw new TaskInventoryException("capability_unavailable", "Verified temporary source sharing requires the inventory API.", true);
                 var assetType = contentType == "script" ? AssetType.LSLText : AssetType.Notecard;
                 var created = new TaskCompletionSource<InventoryItem>(TaskCreationOptions.RunContinuationsAsynchronously);
                 client.Inventory.RequestCreateItem(client.Inventory.FindFolderForType(assetType), name,
@@ -54,9 +59,15 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                         else created.TrySetException(new TaskInventoryException("create_failed", "Temporary inventory creation failed.", true));
                     });
                 temporary = await created.Task.WaitAsync(ct);
+                temporaryId = temporary.UUID;
                 var agentResult = await UploadAssetAsync(temporary.UUID, contentType, source, false, ct);
                 if (!agentResult.Uploaded || (contentType == "script" && agentResult.Compiled != true)) return agentResult;
                 temporary.AssetUUID = UUID.Parse(agentResult.AssetId!);
+                temporary = await new TaskInventorySharing(
+                    (id, changes, token) => client.AisClient.UpdateItemAsync(id, changes, token),
+                    (id, owner, token) => client.Inventory.FetchItemAsync(id, owner, token))
+                    .PrepareAsync(temporary, client.Self.AgentID, sourceGroup, ct);
+                EnsureSimulator();
                 if (contentType == "script")
                     client.Inventory.CopyScriptToTask(primitive.LocalID, temporary, false, simulator);
                 else
@@ -72,6 +83,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                     {
                         if (Kind(matches[0].AssetType) != contentType)
                             throw new TaskInventoryException("wrong_inventory_type", "The copied inventory item has the wrong type.");
+                        TaskInventorySharing.VerifyCopy(matches[0], sourceGroup);
                         itemId = matches[0].UUID;
                     }
                     else await Task.Delay(250, ct);
@@ -89,9 +101,27 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         }
         finally
         {
-            if (temporary is not null && !ct.IsCancellationRequested)
-                await client.Inventory.RemoveItemAsync(temporary.UUID, ct);
+            if (temporaryId != UUID.Zero && !ct.IsCancellationRequested)
+                await client.Inventory.RemoveItemAsync(temporaryId, ct);
         }
+    }
+
+    private async Task<Primitive.ObjectProperties> ReadPropertiesAsync(CancellationToken ct)
+    {
+        EnsureSimulator();
+        var completion = new TaskCompletionSource<Primitive.ObjectProperties>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnProperties(object? sender, ObjectPropertiesFamilyEventArgs e)
+        {
+            if (e.Simulator == simulator && e.Properties.ObjectID == primitive.ID)
+                completion.TrySetResult(e.Properties);
+        }
+        client.Objects.ObjectPropertiesFamily += OnProperties;
+        try
+        {
+            client.Objects.RequestObjectPropertiesFamily(simulator, primitive.ID);
+            return await completion.Task.WaitAsync(ct);
+        }
+        finally { client.Objects.ObjectPropertiesFamily -= OnProperties; }
     }
 
     private async Task<List<InventoryItem>> ReadInventoryAsync(CancellationToken ct)
