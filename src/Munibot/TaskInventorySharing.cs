@@ -39,7 +39,8 @@ public sealed class TaskInventorySharing(
             ["permissions"] = new OSDMap
             {
                 ["group_id"] = OSD.FromUUID(groupId),
-                ["group_mask"] = OSD.FromUInteger((uint)groupMask)
+                // Inventory masks are LLSD integers; FromUInteger emits binary data.
+                ["group_mask"] = OSD.FromInteger((uint)groupMask)
             }
         };
         if (!await update(before.UUID, changes, ct))

@@ -1,5 +1,6 @@
 using OpenMetaverse;
 using OpenMetaverse.StructuredData;
+using System.Xml.Linq;
 
 namespace Munibot.Tests;
 
@@ -74,6 +75,28 @@ public sealed class TaskInventorySharingTests
         Assert.Equal(TaskInventorySharing.SharedSourceMask, result.Permissions.GroupMask);
         Assert.Equal(PermissionMask.None, item.Permissions.GroupMask);
         Assert.Equal(1, fetched);
+    }
+
+    [Fact]
+    public async Task PermissionMaskIsAnLlsdIntegerOnTheWire()
+    {
+        var item = Temporary();
+        var sharing = new TaskInventorySharing((_, patch, _) =>
+        {
+            var xml = XDocument.Parse(OSDParser.SerializeLLSDXmlString(patch));
+            var maskKey = Assert.Single(xml.Descendants("key").Where(key => key.Value == "group_mask"));
+            var wireValue = maskKey.ElementsAfterSelf().First();
+            Assert.Equal("integer", wireValue.Name.LocalName);
+            Assert.Equal("573440", wireValue.Value);
+
+            var decoded = Assert.IsType<OSDMap>(OSDParser.Deserialize(xml.ToString()));
+            var permissions = Assert.IsType<OSDMap>(decoded["permissions"]);
+            Assert.Equal(OSDType.Integer, permissions["group_mask"].Type);
+            Assert.Equal(TaskInventorySharing.SharedSourceMask, Permissions.FromOSD(permissions).GroupMask);
+            Assert.Equal(OSDType.UUID, permissions["group_id"].Type);
+            return Task.FromResult(true);
+        }, (_, _, _) => Task.FromResult<InventoryItem?>(Prepared(item)));
+        await sharing.PrepareAsync(item, Bot, Group, default);
     }
 
     [Fact]
