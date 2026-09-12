@@ -60,6 +60,30 @@ The result separately reports `uploadSucceeded`, `compiled`,
 the structured result. HTTP 503 with `outcomeUnknown: true` requires inspection
 before retry; it never authorizes creating another same-name item.
 
+An explicit simulator source-permission rejection returns HTTP 422 with
+`errorCode: "source_permission_denied"` and `retryable: false`. Retrying the same
+permission arrangement is not a connectivity repair. If upload completed before
+readback failed, `outcomeUnknown` is true: an item may already have been created or
+updated even though its source could not be verified. Do not delete or create a
+replacement based on this error.
+
+Source-transfer failures include `sourceDiagnostics` in the authenticated error
+response. The existing inspection request can collect these details without an
+inventory write. The snapshot contains the bot and active-group IDs, target and
+inventory-item IDs, the requested asset ID, item owner/group IDs and group-owned
+flag, asset type, five permission masks, and simulator transfer status. Masks are
+eight-digit hexadecimal values reported by inventory; the owner mask does not
+establish a different avatar's effective access. An all-zero ID records what the
+client reported and must not be treated as confirmed ownership or group membership.
+
+Compare the returned identities and masks with the actual item properties before
+changing access. Group sharing on the outer object does not establish sharing on
+its inventory items. A successful insertion also does not prove readable source.
+These diagnostics contain private identifiers; keep responses in private test
+evidence and remove identifiers before sharing a report. They exclude source,
+compiler output, credentials, and simulator session IDs, and remain excluded from
+HTTP request/response body logging.
+
 Set `api.task_inventory_timeout_seconds` (default 120; allowed 30–600), and give
 the caller a longer dedicated timeout. Source and compiler responses are excluded
 from request diagnostics even when body logging is enabled.

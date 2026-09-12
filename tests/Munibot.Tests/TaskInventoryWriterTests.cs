@@ -54,6 +54,31 @@ public sealed class TaskInventoryWriterTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PermissionDenialReportsWhetherAnUploadAlreadyHappened(bool afterUpload)
+    {
+        var diagnostics = TaskInventorySourceDiagnosticsDto.Capture(OpenMetaverse.UUID.Random(), OpenMetaverse.UUID.Zero,
+            OpenMetaverse.UUID.Random(), new OpenMetaverse.InventoryItem(OpenMetaverse.UUID.Random()));
+        var denied = new TaskInventoryException("source_permission_denied", "Source access was denied.", sourceDiagnostics: diagnostics);
+        var target = new FakeTarget
+        {
+            Before = [Item()],
+            ReadFailure = afterUpload ? null : denied,
+            ReadFailureAfterUpload = afterUpload ? denied : null
+        };
+
+        var error = await Assert.ThrowsAsync<TaskInventoryException>(() => new TaskInventoryWriter(target).WriteAsync(Name, Request(), default));
+
+        Assert.Equal("source_permission_denied", error.Code);
+        Assert.False(error.Retryable);
+        Assert.Equal(afterUpload, error.OutcomeUnknown);
+        Assert.Same(diagnostics, error.SourceDiagnostics);
+        Assert.Equal(afterUpload ? 1 : 0, target.Uploads);
+        Assert.Equal(afterUpload ? 2 : 1, target.Reads);
+    }
+
+    [Theory]
     [InlineData("wrong_inventory_type")]
     [InlineData("permission_denied")]
     [InlineData("ambiguous_inventory_name")]
@@ -148,6 +173,7 @@ public sealed class TaskInventoryWriterTests
         public IReadOnlyList<TaskInventoryItemDto> Before = [];
         public IReadOnlyList<TaskInventoryItemDto> After = [];
         public Exception? ReadFailure;
+        public Exception? ReadFailureAfterUpload;
         public Task<TaskInventoryUploadResult> UploadCompletion = Task.FromResult(new TaskInventoryUploadResult(true, true, []));
         public int Reads;
         public int Uploads;
@@ -156,7 +182,8 @@ public sealed class TaskInventoryWriterTests
         {
             ct.ThrowIfCancellationRequested();
             Reads++;
-            return ReadFailure is not null ? Task.FromException<IReadOnlyList<TaskInventoryItemDto>>(ReadFailure)
+            var failure = Uploads > 0 ? ReadFailureAfterUpload ?? ReadFailure : ReadFailure;
+            return failure is not null ? Task.FromException<IReadOnlyList<TaskInventoryItemDto>>(failure)
                 : Task.FromResult(Uploads == 0 ? Before : After);
         }
         public Task<TaskInventoryUploadResult> UploadAsync(string name, string kind, byte[] source, TaskInventoryItemDto? existing, CancellationToken ct)

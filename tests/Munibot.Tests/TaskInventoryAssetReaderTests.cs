@@ -66,6 +66,63 @@ public sealed class TaskInventoryAssetReaderTests
     }
 
     [Theory]
+    [InlineData(AssetType.LSLText)]
+    [InlineData(AssetType.Notecard)]
+    public async Task SimulatorPermissionDenialIsNotRetryableAndPreservesRequestDiagnostics(AssetType type)
+    {
+        var item = Item(type);
+        var owner = item.OwnerID;
+        var group = UUID.Random();
+        item.GroupID = group;
+        item.Permissions = new Permissions
+        {
+            BaseMask = PermissionMask.All, EveryoneMask = PermissionMask.Copy,
+            GroupMask = PermissionMask.Copy | PermissionMask.Modify,
+            OwnerMask = PermissionMask.Modify | PermissionMask.Copy | PermissionMask.Transfer,
+            NextOwnerMask = PermissionMask.All
+        };
+        var bot = UUID.Random();
+        var target = UUID.Random();
+        var reader = new TaskInventoryAssetReader((requested, callback) =>
+        {
+            requested.OwnerID = UUID.Random();
+            callback(new AssetDownload { Success = false, Status = StatusCode.InsufficientPermissions }, null);
+        }, requested => TaskInventorySourceDiagnosticsDto.Capture(bot, group, target, requested));
+
+        var error = await Assert.ThrowsAsync<TaskInventoryException>(() => reader.ReadAsync(item, default));
+
+        Assert.Equal("source_permission_denied", error.Code);
+        Assert.False(error.Retryable);
+        Assert.False(error.OutcomeUnknown);
+        var details = Assert.IsType<TaskInventorySourceDiagnosticsDto>(error.SourceDiagnostics);
+        Assert.Equal(bot.ToString(), details.BotId);
+        Assert.Equal(group.ToString(), details.ActiveGroupId);
+        Assert.Equal(target.ToString(), details.ObjectId);
+        Assert.Equal(item.UUID.ToString(), details.ItemId);
+        Assert.Equal(UUID.Zero.ToString(), details.RequestedAssetId);
+        Assert.Equal(owner.ToString(), details.ItemOwnerId);
+        Assert.Equal(group.ToString(), details.ItemGroupId);
+        Assert.Equal(((uint)item.Permissions.GroupMask).ToString("x8"), details.GroupMask);
+        Assert.Equal(((uint)item.Permissions.OwnerMask).ToString("x8"), details.OwnerMask);
+        Assert.Equal("InsufficientPermissions", details.TransferStatus);
+        Assert.False(details.TransferSucceeded);
+    }
+
+    [Fact]
+    public async Task MissingSourceDataRemainsADistinctRetryableFailure()
+    {
+        var item = Item();
+        var reader = new TaskInventoryAssetReader((_, callback) => callback(
+            new AssetDownload { Success = true, Status = StatusCode.OK }, new AssetScriptText(UUID.Random(), [])),
+            requested => TaskInventorySourceDiagnosticsDto.Capture(UUID.Random(), UUID.Zero, UUID.Random(), requested));
+        var error = await Assert.ThrowsAsync<TaskInventoryException>(() => reader.ReadAsync(item, default));
+        Assert.Equal("source_unreadable", error.Code);
+        Assert.True(error.Retryable);
+        Assert.Equal("OK", error.SourceDiagnostics!.TransferStatus);
+        Assert.Equal(UUID.Zero.ToString(), error.SourceDiagnostics.ActiveGroupId);
+    }
+
+    [Theory]
     [InlineData("missing")]
     [InlineData("wrapper-mismatch")]
     [InlineData("requested-mismatch")]
