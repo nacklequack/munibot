@@ -110,20 +110,20 @@ public sealed class TaskInventorySharingTests
     }
 
     [Theory]
-    [InlineData("missing")]
-    [InlineData("id")]
-    [InlineData("owner")]
-    [InlineData("group-owned")]
-    [InlineData("group")]
-    [InlineData("group-mask")]
-    [InlineData("base")]
-    [InlineData("owner-mask")]
-    [InlineData("everyone")]
-    [InlineData("next-owner")]
-    [InlineData("asset")]
-    [InlineData("type")]
-    [InlineData("name")]
-    public async Task ReadbackMustPreserveIdentitySourceAndUnrelatedPermissions(string mismatch)
+    [InlineData("missing", "item_missing")]
+    [InlineData("id", "item_id")]
+    [InlineData("owner", "owner_id")]
+    [InlineData("group-owned", "group_owned")]
+    [InlineData("group", "group_id")]
+    [InlineData("group-mask", "group_mask")]
+    [InlineData("base", "base_mask")]
+    [InlineData("owner-mask", "owner_mask")]
+    [InlineData("everyone", "everyone_mask")]
+    [InlineData("next-owner", "next_owner_mask")]
+    [InlineData("asset", "asset_id")]
+    [InlineData("type", "asset_type")]
+    [InlineData("name", "name")]
+    public async Task ReadbackMustPreserveIdentitySourceAndUnrelatedPermissions(string mismatch, string field)
     {
         var item = Temporary();
         InventoryItem? returned = Prepared(item);
@@ -146,7 +146,36 @@ public sealed class TaskInventorySharingTests
         var sharing = new TaskInventorySharing((_, _, _) => Task.FromResult(true), (_, _, _) => Task.FromResult(returned));
         var error = await Assert.ThrowsAsync<TaskInventoryException>(() => sharing.PrepareAsync(item, Bot, Group, default));
         Assert.Equal("source_sharing_unconfirmed", error.Code);
+        Assert.Contains(": " + field, error.Message);
+        Assert.True(error.Retryable);
         Assert.False(error.OutcomeUnknown);
+    }
+
+    [Fact]
+    public async Task ReportsAllMismatchesWithMaskValuesButNoPrivateIdentityValues()
+    {
+        var item = Temporary();
+        var returned = Prepared(item);
+        returned.GroupID = UUID.Zero;
+        returned.AssetUUID = UUID.Zero;
+        returned.Name = "Private inventory name";
+        returned.Permissions.GroupMask = PermissionMask.None;
+        returned.Permissions.EveryoneMask = PermissionMask.Copy;
+        var sharing = new TaskInventorySharing((_, _, _) => Task.FromResult(true),
+            (_, _, _) => Task.FromResult<InventoryItem?>(returned));
+
+        var error = await Assert.ThrowsAsync<TaskInventoryException>(() => sharing.PrepareAsync(item, Bot, Group, default));
+
+        Assert.Contains("group_id (expected nonzero, observed zero)", error.Message);
+        Assert.Contains("asset_id (expected nonzero, observed zero)", error.Message);
+        Assert.Contains("group_mask (expected 0x0008c000, observed 0x00000000)", error.Message);
+        Assert.Contains("everyone_mask (expected 0x00000000, observed 0x00008000)", error.Message);
+        Assert.Contains("; name.", error.Message);
+        foreach (var id in new[] { item.UUID, item.AssetUUID, Bot, Group, UUID.Zero })
+            Assert.DoesNotContain(id.ToString(), error.Message);
+        Assert.DoesNotContain(item.Name, error.Message);
+        Assert.DoesNotContain(returned.Name, error.Message);
+        Assert.Contains("Nothing was copied to the target", error.Message);
     }
 
     [Fact]
@@ -196,9 +225,18 @@ public sealed class TaskInventorySharingTests
         TaskInventorySharing.VerifyCopy(copied, Group);
         copied.Permissions.GroupMask = PermissionMask.None;
         var error = Assert.Throws<TaskInventoryException>(() => TaskInventorySharing.VerifyCopy(copied, Group));
+        Assert.Contains("group_mask (required 0x0008c000, observed 0x00000000, missing 0x0008c000)", error.Message);
         Assert.True(error.OutcomeUnknown);
         Assert.False(error.Retryable);
         TaskInventorySharing.VerifyCopy(copied, UUID.Zero);
+    }
+
+    [Fact]
+    public void CopyWithAdditionalGroupPermissionsStillPasses()
+    {
+        var copied = Prepared(Temporary());
+        copied.Permissions.GroupMask |= PermissionMask.Transfer;
+        TaskInventorySharing.VerifyCopy(copied, Group);
     }
 
     private static Primitive.ObjectProperties Target() => new()

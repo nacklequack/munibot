@@ -48,23 +48,53 @@ public sealed class TaskInventorySharing(
 
         var prepared = await fetch(before.UUID, botId, ct);
         ct.ThrowIfCancellationRequested();
-        if (prepared is null || prepared.UUID != before.UUID || prepared.OwnerID != botId || prepared.GroupOwned ||
-            prepared.GroupID != groupId || prepared.Permissions.GroupMask != groupMask ||
-            prepared.Permissions.BaseMask != before.BaseMask ||
-            prepared.Permissions.OwnerMask != before.OwnerMask ||
-            prepared.Permissions.EveryoneMask != before.EveryoneMask ||
-            prepared.Permissions.NextOwnerMask != before.NextOwnerMask ||
-            prepared.AssetUUID != before.AssetUUID || prepared.AssetType != before.AssetType || prepared.Name != before.Name)
+        var differences = new List<string>();
+        if (prepared is null) differences.Add("item_missing");
+        else
+        {
+            CompareId(differences, "item_id", before.UUID, prepared.UUID);
+            CompareId(differences, "owner_id", botId, prepared.OwnerID);
+            if (prepared.GroupOwned) differences.Add("group_owned (expected false, observed true)");
+            CompareId(differences, "group_id", groupId, prepared.GroupID);
+            CompareMask(differences, "group_mask", groupMask, prepared.Permissions.GroupMask);
+            CompareMask(differences, "base_mask", before.BaseMask, prepared.Permissions.BaseMask);
+            CompareMask(differences, "owner_mask", before.OwnerMask, prepared.Permissions.OwnerMask);
+            CompareMask(differences, "everyone_mask", before.EveryoneMask, prepared.Permissions.EveryoneMask);
+            CompareMask(differences, "next_owner_mask", before.NextOwnerMask, prepared.Permissions.NextOwnerMask);
+            CompareId(differences, "asset_id", before.AssetUUID, prepared.AssetUUID);
+            if (prepared.AssetType != before.AssetType) differences.Add("asset_type");
+            if (prepared.Name != before.Name) differences.Add("name");
+        }
+        if (differences.Count != 0)
             throw new TaskInventoryException("source_sharing_unconfirmed",
-                "The temporary source sharing and identity were not verified. Nothing was copied to the target.", true);
-        return prepared;
+                $"The temporary source sharing and identity were not verified: {string.Join("; ", differences)}. Nothing was copied to the target.", true);
+        return prepared!;
     }
 
     public static void VerifyCopy(InventoryItem copied, UUID expectedGroup)
     {
-        if (expectedGroup != UUID.Zero && (copied.GroupID != expectedGroup ||
-            (copied.Permissions.GroupMask & SharedSourceMask) != SharedSourceMask))
+        if (expectedGroup == UUID.Zero) return;
+        var differences = new List<string>();
+        CompareId(differences, "group_id", expectedGroup, copied.GroupID);
+        var missing = SharedSourceMask & ~copied.Permissions.GroupMask;
+        if (missing != PermissionMask.None)
+            differences.Add($"group_mask (required {Mask(SharedSourceMask)}, observed {Mask(copied.Permissions.GroupMask)}, missing {Mask(missing)})");
+        if (differences.Count != 0)
             throw new TaskInventoryException("source_sharing_unconfirmed",
-                "The new task item did not retain group sharing. Inspect this copy before retrying.", false, true);
+                $"The new task item did not retain group sharing: {string.Join("; ", differences)}. Inspect this copy before retrying.", false, true);
     }
+
+    // Identify mismatches without disclosing inventory names, source, or private UUIDs.
+    private static void CompareId(List<string> differences, string field, UUID expected, UUID observed)
+    {
+        if (expected != observed)
+            differences.Add($"{field} (expected {(expected == UUID.Zero ? "zero" : "nonzero")}, observed {(observed == UUID.Zero ? "zero" : "nonzero")})");
+    }
+
+    private static void CompareMask(List<string> differences, string field, PermissionMask expected, PermissionMask observed)
+    {
+        if (expected != observed) differences.Add($"{field} (expected {Mask(expected)}, observed {Mask(observed)})");
+    }
+
+    private static string Mask(PermissionMask mask) => $"0x{(uint)mask:x8}";
 }

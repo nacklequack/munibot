@@ -43,6 +43,34 @@ public sealed class TaskInventoryErrorResponseTests
         Assert.False(observed.TryGetProperty("sessionId", out _));
     }
 
+    [Fact]
+    public async Task SharingMismatchDetailsReachCallerWithoutHttpBodyLogging()
+    {
+        var error = Assert.Throws<TaskInventoryException>(() =>
+            TaskInventorySharing.VerifyCopy(new InventoryItem(UUID.Random()), UUID.Random()));
+        using var services = new ServiceCollection().AddLogging().AddOptions().BuildServiceProvider();
+        var context = new DefaultHttpContext { RequestServices = services };
+        context.Request.Method = "PUT";
+        context.Request.Path = "/api/objects/00000000-0000-0000-0000-000000000001/inventory/items/probe.lsl";
+        context.Response.Body = new MemoryStream();
+        var logger = new CapturingLogger();
+        var middleware = new RequestDiagnosticsMiddleware(c => TaskInventoryEndpoints.ErrorResult(error).ExecuteAsync(c),
+            new BotConfig { Diagnostics = new() { LogApiCalls = true, LogApiBodies = true } }, logger);
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Empty(logger.Messages);
+        Assert.Equal(422, context.Response.StatusCode);
+        context.Response.Body.Position = 0;
+        using var body = await JsonDocument.ParseAsync(context.Response.Body);
+        var message = body.RootElement.GetProperty("error").GetString();
+        Assert.Equal(error.Message, message);
+        Assert.Contains("group_id (expected nonzero, observed zero)", message);
+        Assert.Contains("group_mask (required 0x0008c000, observed 0x00000000, missing 0x0008c000)", message);
+        Assert.False(body.RootElement.GetProperty("retryable").GetBoolean());
+        Assert.True(body.RootElement.GetProperty("outcomeUnknown").GetBoolean());
+    }
+
     private sealed class CapturingLogger : ILogger<RequestDiagnosticsMiddleware>
     {
         public List<string> Messages { get; } = [];
