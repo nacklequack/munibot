@@ -17,6 +17,9 @@ RUN useradd --create-home --uid 10001 munibot
 
 COPY --from=build /app/publish ./
 
+RUN mkdir -p /app/linden/cache \
+    && chown munibot:munibot /app/linden/cache
+
 ENV ASPNETCORE_URLS=http://0.0.0.0:5107
 EXPOSE 5107
 
