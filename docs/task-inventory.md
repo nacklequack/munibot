@@ -88,6 +88,16 @@ Set `api.task_inventory_timeout_seconds` (default 120; allowed 30–600), and gi
 the caller a longer dedicated timeout. Source and compiler responses are excluded
 from request diagnostics even when body logging is enabled.
 
+Unanswered inventory-list, source, object-properties, and script-running-state
+reads use up to three 15-second attempts within that overall operation budget.
+The error identifies the stalled stage (`inventory_list_timeout`,
+`source_read_timeout`, `object_properties_timeout`, or `script_state_timeout`).
+Permission failures are returned immediately. These retries only repeat reads;
+creation, copying, and uploads are never replayed by this policy. A read failure
+after a copy or upload still reports an unknown outcome and requires inspection
+before another write. An empty or cancelled inventory response never authorizes
+creating another item.
+
 ## Disposable-object verification
 
 Provide the scoped token as `MUNIBOT_TASK_TOKEN` through private configuration.

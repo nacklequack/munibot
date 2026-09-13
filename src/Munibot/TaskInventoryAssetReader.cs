@@ -9,7 +9,11 @@ public sealed record TaskInventorySourceAsset(UUID AssetId, byte[] Source);
 public sealed class TaskInventoryAssetReader(Action<InventoryItem, AssetManager.AssetReceivedCallback> request,
     Func<InventoryItem, TaskInventorySourceDiagnosticsDto>? describeAccess = null)
 {
-    public async Task<TaskInventorySourceAsset> ReadAsync(InventoryItem item, CancellationToken ct)
+    public Task<TaskInventorySourceAsset> ReadAsync(InventoryItem item, CancellationToken ct) =>
+        new TaskInventoryReadRetry().RunAsync(token => DownloadAsync(item, token), "source_read_timeout",
+            $"Source read timed out for {item.Name}. Inspect the target before retrying.", ct);
+
+    private async Task<TaskInventorySourceAsset> DownloadAsync(InventoryItem item, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         var access = describeAccess?.Invoke(item);

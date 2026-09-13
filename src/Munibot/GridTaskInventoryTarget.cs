@@ -31,7 +31,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                 var source = await sourceReader.ReadAsync(item, ct);
                 assetId = source.AssetId;
                 hash = TaskInventoryContent.Hash(source.Source);
-                if (kind == "script") running = await ReadRunningAsync(item.UUID, ct);
+                if (kind == "script") running = await ReadRunningAsync(item, ct);
             }
             results.Add(new(item.Name, item.UUID.ToString(), assetId.ToString(), kind,
                 modify, Has(item, PermissionMask.Copy), Has(item, PermissionMask.Transfer), running, hash));
@@ -45,6 +45,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         var itemId = existing is null ? UUID.Zero : UUID.Parse(existing.ItemId);
         InventoryItem? temporary = null;
         var temporaryId = UUID.Zero;
+        var targetMayHaveChanged = false;
         try
         {
             if (existing is null)
@@ -74,6 +75,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                     agentSourceReader.ReadAssetIdAsync)
                     .PrepareAsync(temporary, client.Self.AgentID, sourceGroup, ct);
                 EnsureSimulator();
+                targetMayHaveChanged = true;
                 if (contentType == "script")
                     client.Inventory.CopyScriptToTask(primitive.LocalID, temporary, false, simulator);
                 else
@@ -103,7 +105,12 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                 if (current is null || (await sourceReader.ReadAssetIdAsync(current, ct)).ToString() != existing.AssetId)
                     throw new TaskInventoryException("inventory_changed", "The inventory changed during this operation. Inspect before retrying.", true);
             }
+            targetMayHaveChanged = true;
             return await UploadAssetAsync(itemId, contentType, source, true, ct);
+        }
+        catch (TaskInventoryException ex) when (targetMayHaveChanged && !ex.OutcomeUnknown)
+        {
+            throw new TaskInventoryException(ex.Code, ex.Message, ex.Retryable, true, ex.SourceDiagnostics);
         }
         finally
         {
@@ -112,7 +119,11 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         }
     }
 
-    private async Task<Primitive.ObjectProperties> ReadPropertiesAsync(CancellationToken ct)
+    private Task<Primitive.ObjectProperties> ReadPropertiesAsync(CancellationToken ct) =>
+        new TaskInventoryReadRetry().RunAsync(ReadPropertiesOnceAsync, "object_properties_timeout",
+            "Object permission inspection timed out. Inspect the target before retrying.", ct);
+
+    private async Task<Primitive.ObjectProperties> ReadPropertiesOnceAsync(CancellationToken ct)
     {
         EnsureSimulator();
         var completion = new TaskCompletionSource<Primitive.ObjectProperties>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -133,7 +144,9 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
     private async Task<List<InventoryItem>> ReadInventoryAsync(CancellationToken ct)
     {
         EnsureSimulator();
-        var items = await client.Inventory.GetTaskInventoryAsync(primitive.ID, primitive.LocalID, simulator, ct);
+        var items = await new TaskInventoryReadRetry().RunAsync(
+            token => client.Inventory.GetTaskInventoryAsync(primitive.ID, primitive.LocalID, simulator, token),
+            "inventory_list_timeout", "The object inventory list timed out. Inspect the target before retrying.", ct);
         // LibreMetaverse returns an empty list on cancellation, including during the inventory transfer.
         ct.ThrowIfCancellationRequested();
         var snapshot = items.OfType<InventoryItem>().ToList();
@@ -143,7 +156,11 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         return snapshot;
     }
 
-    private async Task<bool> ReadRunningAsync(UUID itemId, CancellationToken ct)
+    private Task<bool> ReadRunningAsync(InventoryItem item, CancellationToken ct) =>
+        new TaskInventoryReadRetry().RunAsync(token => ReadRunningOnceAsync(item.UUID, token), "script_state_timeout",
+            $"Script running-state read timed out for {item.Name}. Inspect the target before retrying.", ct);
+
+    private async Task<bool> ReadRunningOnceAsync(UUID itemId, CancellationToken ct)
     {
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         void Callback(object? sender, ScriptRunningReplyEventArgs e)
