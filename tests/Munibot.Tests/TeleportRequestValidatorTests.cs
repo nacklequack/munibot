@@ -45,6 +45,19 @@ public sealed class TeleportRequestValidatorTests
     }
 
     [Theory]
+    [InlineData(255.5f, 64, 4000)]
+    [InlineData(64, 255.75f, 4000)]
+    [InlineData(255.99998f, 255.99998f, 4096)]
+    [InlineData(0, 0, 0)]
+    public void NormalizePosition_PreservesFractionalCoordinatesThroughoutTheRegion(float x, float y, float z)
+    {
+        var position = TeleportRequestValidator.NormalizePosition(new Vector3Dto(x, y, z));
+        Assert.Equal(x, position.X);
+        Assert.Equal(y, position.Y);
+        Assert.Equal(z, position.Z);
+    }
+
+    [Theory]
     [InlineData(-1, 128, 25)]
     [InlineData(256, 128, 25)]
     [InlineData(128, -1, 25)]

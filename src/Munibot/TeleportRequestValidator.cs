@@ -12,11 +12,12 @@ public static class TeleportRequestValidator
             throw new ArgumentException("Teleport position coordinates must be finite numbers.");
         }
 
-        if (normalized.X < 0 || normalized.X > 255 ||
-            normalized.Y < 0 || normalized.Y > 255 ||
+        // Region coordinates are continuous metres; the final metre is [255, 256).
+        if (normalized.X < 0 || normalized.X >= 256 ||
+            normalized.Y < 0 || normalized.Y >= 256 ||
             normalized.Z < 0 || normalized.Z > 4096)
         {
-            throw new ArgumentException("Teleport position must be within region bounds: x/y 0-255, z 0-4096.");
+            throw new ArgumentException("Teleport position must be within region bounds: 0 <= x/y < 256, z 0-4096.");
         }
 
         return new Vector3(normalized.X, normalized.Y, normalized.Z);
