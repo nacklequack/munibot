@@ -48,6 +48,7 @@ try
     app.MapActiveGroupEndpoints();
 
     app.MapTrafficEndpoints();
+    app.MapTextureDeliveryEndpoints();
 
     app.MapGet("/health", (SecondLifeBotSession session) =>
         Results.Ok(new HealthDto(session.IsOnline, session.IsOnline ? session.AgentId : null, session.CurrentSimulator)));
