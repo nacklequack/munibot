@@ -53,6 +53,8 @@ public sealed partial class SecondLifeBotSession
                 }
                 var simulator = _client.Network.CurrentSim
                     ?? throw new TaskInventoryException("bot_offline", "The simulator connection was lost.", true);
+                if (!await WaitForAgentMovementCompleteAsync(simulator, token))
+                    throw new TaskInventoryException("target_unreachable", "Bot movement did not complete in the target region.", true);
                 RefreshCameraInterest("task inventory lookup");
                 Primitive? primitive = null;
                 for (var attempt = 0; attempt < 40 && primitive is null; attempt++)

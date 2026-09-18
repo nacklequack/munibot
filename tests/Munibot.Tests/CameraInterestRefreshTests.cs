@@ -37,4 +37,31 @@ public sealed class CameraInterestRefreshTests
 
         Assert.Equal([initialPosition, movedPosition], advertisedPositions);
     }
+
+    [Fact]
+    public async Task WaitsForMovementCompletionBeforeCameraRefresh()
+    {
+        var client = new GridClient();
+        var movementComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var wait = CameraInterestRefresh.WaitForMovementCompleteAsync(() => movementComplete.Task.IsCompleted,
+            TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(5), default);
+
+        await Task.Delay(25);
+        Assert.False(wait.IsCompleted);
+        Assert.NotEqual(new Vector3(253, 4, 4001), client.Self.Movement.Camera.Position);
+
+        movementComplete.SetResult();
+        Assert.True(await wait);
+        CameraInterestRefresh.AlignAndSend(client, new Vector3(253, 4, 4001),
+            () => Assert.Equal(new Vector3(253, 4, 4001), client.Self.Movement.Camera.Position));
+    }
+
+    [Fact]
+    public async Task MovementCompletionWaitIsBounded()
+    {
+        var completed = await CameraInterestRefresh.WaitForMovementCompleteAsync(() => false,
+            TimeSpan.FromMilliseconds(30), TimeSpan.FromMilliseconds(5), default);
+
+        Assert.False(completed);
+    }
 }
