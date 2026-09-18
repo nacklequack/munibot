@@ -101,7 +101,7 @@ public sealed partial class SecondLifeBotSession(
             _client.Self.SimPosition);
 
         ConfigureMovementKeepalive();
-        SendMovementKeepalive();
+        RefreshCameraInterest("login");
         await AllowConfiguredExperiencesAsync(cancellationToken);
         LastDisconnectReason = null;
     }
@@ -145,6 +145,20 @@ public sealed partial class SecondLifeBotSession(
         _client.Self.Movement.SendUpdate(false);
         logger.LogDebug("Movement keepalive AgentUpdate sent.");
         return true;
+    }
+
+    private void RefreshCameraInterest(string context)
+    {
+        var previousCamera = _client.Self.Movement.Camera.Position;
+        var avatar = _client.Self.SimPosition;
+        CameraInterestRefresh.AlignAndSend(_client, avatar, () => _client.Self.Movement.SendUpdate(false));
+        logger.LogInformation(
+            "Camera interest refreshed after {Context}; simulator={Simulator} avatar={AvatarPosition} previousCamera={PreviousCameraPosition} camera={CameraPosition}",
+            context,
+            _client.Network.CurrentSim?.Name ?? "unknown",
+            avatar,
+            previousCamera,
+            _client.Self.Movement.Camera.Position);
     }
 
     public async Task<GroupRosterDto> GetGroupRosterAsync(string groupUuid, CancellationToken cancellationToken)
@@ -661,6 +675,7 @@ public sealed partial class SecondLifeBotSession(
             var requestedAt = DateTimeOffset.UtcNow;
             if (IsCurrentSimulator(regionName) && IsNearCurrentPosition(position, 3))
             {
+                RefreshCameraInterest("satisfied teleport request");
                 logger.LogInformation(
                     "Teleport request for {RegionName} at {Position} treated as already satisfied; current position={CurrentPosition}",
                     regionName,
@@ -686,6 +701,8 @@ public sealed partial class SecondLifeBotSession(
             {
                 throw new InvalidOperationException(GetTeleportFailureMessage(regionName));
             }
+
+            RefreshCameraInterest("teleport");
 
             return new TeleportResultDto(
                 true,
@@ -2030,6 +2047,8 @@ public sealed partial class SecondLifeBotSession(
             {
                 throw new InvalidOperationException(GetTeleportFailureMessage(anchorRegion));
             }
+
+            RefreshCameraInterest("estate anchor teleport");
         }
         finally
         {
