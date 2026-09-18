@@ -53,15 +53,31 @@ public sealed partial class SecondLifeBotSession
                 }
                 var simulator = _client.Network.CurrentSim
                     ?? throw new TaskInventoryException("bot_offline", "The simulator connection was lost.", true);
+                if (!await WaitForAgentMovementCompleteAsync(simulator, token))
+                    throw new TaskInventoryException("target_unreachable", "Bot movement did not complete in the target region.", true);
+                RefreshCameraInterest("task inventory lookup");
                 Primitive? primitive = null;
                 for (var attempt = 0; attempt < 40 && primitive is null; attempt++)
                 {
                     token.ThrowIfCancellationRequested();
                     primitive = FindPrimitive(simulator, objectId);
+                    if (primitive is null && attempt == 19)
+                        RefreshCameraInterest("task inventory visibility retry");
                     if (primitive is null) await Task.Delay(250, token);
                 }
                 if (primitive is null)
+                {
+                    logger.LogWarning(
+                        "Task inventory target not visible after 10 seconds; target={TargetId} requestedRegion={RequestedRegion} requestedPosition={RequestedPosition} simulator={Simulator} avatar={AvatarPosition} camera={CameraPosition} cachedPrimitives={CachedPrimitiveCount}",
+                        objectId,
+                        regionName,
+                        destination,
+                        simulator.Name,
+                        _client.Self.SimPosition,
+                        _client.Self.Movement.Camera.Position,
+                        simulator.ObjectsPrimitives.Count);
                     throw new TaskInventoryException("target_unreachable", "The exact target object is not visible in the target region.", true);
+                }
                 if (primitive.IsAttachment)
                     throw new TaskInventoryException("attachment_unsupported", "Task inventory delivery supports rezzed objects only.");
                 if ((primitive.Flags & PrimFlags.ObjectModify) == 0)

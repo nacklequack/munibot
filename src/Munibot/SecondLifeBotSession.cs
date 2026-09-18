@@ -101,7 +101,11 @@ public sealed partial class SecondLifeBotSession(
             _client.Self.SimPosition);
 
         ConfigureMovementKeepalive();
-        SendMovementKeepalive();
+        var loginSimulator = _client.Network.CurrentSim
+            ?? throw new InvalidOperationException("No simulator is connected after login.");
+        if (!await WaitForAgentMovementCompleteAsync(loginSimulator, cancellationToken))
+            throw new TimeoutException("Agent movement did not complete after login.");
+        RefreshCameraInterest("login");
         await AllowConfiguredExperiencesAsync(cancellationToken);
         LastDisconnectReason = null;
     }
@@ -146,6 +150,25 @@ public sealed partial class SecondLifeBotSession(
         logger.LogDebug("Movement keepalive AgentUpdate sent.");
         return true;
     }
+
+    private void RefreshCameraInterest(string context)
+    {
+        var previousCamera = _client.Self.Movement.Camera.Position;
+        var avatar = _client.Self.SimPosition;
+        CameraInterestRefresh.AlignAndSend(_client, avatar, () => _client.Self.Movement.SendUpdate(false));
+        logger.LogInformation(
+            "Camera interest refreshed after {Context}; simulator={Simulator} avatar={AvatarPosition} previousCamera={PreviousCameraPosition} camera={CameraPosition}",
+            context,
+            _client.Network.CurrentSim?.Name ?? "unknown",
+            avatar,
+            previousCamera,
+            _client.Self.Movement.Camera.Position);
+    }
+
+    private Task<bool> WaitForAgentMovementCompleteAsync(Simulator simulator, CancellationToken token)
+        => CameraInterestRefresh.WaitForMovementCompleteAsync(
+            () => simulator.AgentMovementComplete && ReferenceEquals(_client.Network.CurrentSim, simulator),
+            TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(100), token);
 
     public async Task<GroupRosterDto> GetGroupRosterAsync(string groupUuid, CancellationToken cancellationToken)
     {
@@ -661,6 +684,10 @@ public sealed partial class SecondLifeBotSession(
             var requestedAt = DateTimeOffset.UtcNow;
             if (IsCurrentSimulator(regionName) && IsNearCurrentPosition(position, 3))
             {
+                var currentSimulator = _client.Network.CurrentSim!;
+                if (!await WaitForAgentMovementCompleteAsync(currentSimulator, cancellationToken))
+                    throw new TimeoutException("Agent movement did not complete in the requested region.");
+                RefreshCameraInterest("satisfied teleport request");
                 logger.LogInformation(
                     "Teleport request for {RegionName} at {Position} treated as already satisfied; current position={CurrentPosition}",
                     regionName,
@@ -686,6 +713,12 @@ public sealed partial class SecondLifeBotSession(
             {
                 throw new InvalidOperationException(GetTeleportFailureMessage(regionName));
             }
+
+            var arrivedSimulator = _client.Network.CurrentSim
+                ?? throw new InvalidOperationException("No simulator is connected after teleport.");
+            if (!await WaitForAgentMovementCompleteAsync(arrivedSimulator, cancellationToken))
+                throw new TimeoutException("Agent movement did not complete after teleport.");
+            RefreshCameraInterest("teleport");
 
             return new TeleportResultDto(
                 true,
@@ -2015,6 +2048,10 @@ public sealed partial class SecondLifeBotSession(
     {
         if (IsCurrentSimulator(anchorRegion))
         {
+            var currentSimulator = _client.Network.CurrentSim!;
+            if (!await WaitForAgentMovementCompleteAsync(currentSimulator, cancellationToken))
+                throw new TimeoutException("Agent movement did not complete in the estate anchor region.");
+            RefreshCameraInterest("estate anchor already current");
             logger.LogDebug(
                 "Estate anchor region {AnchorRegion} is already current simulator; skipping anchor teleport.",
                 anchorRegion);
@@ -2030,6 +2067,12 @@ public sealed partial class SecondLifeBotSession(
             {
                 throw new InvalidOperationException(GetTeleportFailureMessage(anchorRegion));
             }
+
+            var arrivedSimulator = _client.Network.CurrentSim
+                ?? throw new InvalidOperationException("No simulator is connected after estate anchor teleport.");
+            if (!await WaitForAgentMovementCompleteAsync(arrivedSimulator, cancellationToken))
+                throw new TimeoutException("Agent movement did not complete after estate anchor teleport.");
+            RefreshCameraInterest("estate anchor teleport");
         }
         finally
         {
