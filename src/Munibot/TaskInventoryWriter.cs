@@ -5,12 +5,14 @@ namespace Munibot;
 
 public interface ITaskInventoryTarget
 {
+    Task PreflightExperienceAsync(Guid experienceId, CancellationToken cancellationToken);
     Task<IReadOnlyList<TaskInventoryItemDto>> InspectAsync(IReadOnlyList<string> names, CancellationToken cancellationToken);
     Task<TaskInventoryUploadResult> UploadAsync(string name, string contentType, byte[] source,
-        TaskInventoryItemDto? existing, CancellationToken cancellationToken);
+        TaskInventoryItemDto? existing, Guid? expectedExperienceId, CancellationToken cancellationToken);
 }
 
-public sealed record TaskInventoryUploadResult(bool Uploaded, bool? Compiled, IReadOnlyList<string> Messages, string? AssetId = null);
+public sealed record TaskInventoryUploadResult(bool Uploaded, bool? Compiled, IReadOnlyList<string> Messages,
+    string? AssetId = null, string? ItemId = null);
 
 public static class TaskInventoryContent
 {
@@ -38,6 +40,8 @@ public static class TaskInventoryContent
         ValidateName(name);
         if (request.ContentType is not ("script" or "notecard"))
             throw new ArgumentException("ContentType must be script or notecard.");
+        if (request.ExpectedExperienceId is { } experience && (experience == Guid.Empty || request.ContentType != "script"))
+            throw new ArgumentException("ExpectedExperienceId must be a nonzero UUID and is only supported for scripts.");
         if (!Guid.TryParse(request.RequestId, out _)) throw new ArgumentException("RequestId must be a UUID.");
         if (string.IsNullOrEmpty(request.SourceDataBase64) || request.SourceDataBase64.Length > (MaxSourceBytes * 4 / 3) + 4)
             throw new ArgumentException("SourceDataBase64 is missing or exceeds the size limit.");
@@ -56,6 +60,8 @@ public sealed class TaskInventoryWriter(ITaskInventoryTarget target)
     public async Task<TaskInventoryWriteResultDto> WriteAsync(string name, TaskInventoryWriteRequestDto request, CancellationToken ct)
     {
         var bytes = TaskInventoryContent.ValidateWrite(name, request);
+        if (request.ExpectedExperienceId is { } experience)
+            await target.PreflightExperienceAsync(experience, ct);
         // Inventory failure must propagate. It is never evidence that an item is missing.
         var existing = Find(await target.InspectAsync([name], ct), name);
         if (existing is not null)
@@ -65,7 +71,7 @@ public sealed class TaskInventoryWriter(ITaskInventoryTarget target)
             RequirePermissions(existing, request.ContentType);
         }
 
-        var result = await target.UploadAsync(name, request.ContentType, bytes, existing, ct);
+        var result = await target.UploadAsync(name, request.ContentType, bytes, existing, request.ExpectedExperienceId, ct);
         if (!result.Uploaded || (request.ContentType == "script" && result.Compiled != true))
             return new(request.RequestId, false, result.Uploaded, result.Compiled, result.Messages, null,
                 result.Uploaded ? "compile_failed" : "upload_failed", "The inventory upload did not produce verified source.", !result.Uploaded);
@@ -84,11 +90,21 @@ public sealed class TaskInventoryWriter(ITaskInventoryTarget target)
                 throw new TaskInventoryException(ex.Code, ex.Message, ex.Retryable, true, ex.SourceDiagnostics);
             }
             if (observed is not null && observed.ContentType == request.ContentType &&
+                (existing is null || observed.ItemId == existing.ItemId) &&
+                (result.ItemId is null || observed.ItemId == result.ItemId) &&
+                (request.ExpectedExperienceId is null || result.ItemId is not null) &&
                 (result.AssetId is null || observed.AssetId == result.AssetId) &&
                 observed.SourceSha256.Equals(request.ExpectedSha256, StringComparison.OrdinalIgnoreCase) &&
                 (request.ContentType != "script" || observed.Running == false))
             {
-                RequirePermissions(observed, request.ContentType);
+                try { RequirePermissions(observed, request.ContentType); }
+                catch (TaskInventoryException ex)
+                { throw new TaskInventoryException(ex.Code, ex.Message, ex.Retryable, true); }
+                if (request.ExpectedExperienceId is { } expected && observed.ExperienceId != expected)
+                    return new(request.RequestId, false, true, result.Compiled, result.Messages, observed,
+                        observed.ExperienceId is null ? "experience_unconfirmed" : "experience_mismatch",
+                        "The installed script Experience could not be verified. Inspect before retrying.",
+                        observed.ExperienceId is null, true);
                 return new(request.RequestId, true, true, result.Compiled, result.Messages, observed, null, null, false);
             }
             await Task.Delay(TimeSpan.FromMilliseconds(250), ct);

@@ -17,6 +17,10 @@ Inspection accepts `region`, `position: {x,y,z}`, and `names` (1–64 exact name
 It returns `objectUuid` and `items`, including task item and asset IDs, type,
 modify/copy/transfer permissions, normalized source SHA-256, and script running
 state. A failed inspection is an error, never an empty inventory result.
+Script inspection also returns `experienceId`: a UUID when metadata is readable,
+the zero UUID only when the simulator explicitly confirms no association, and
+`null` when unknown (including unavailable, rejected, or malformed metadata).
+Notecards return `null`. No association is inferred from a name, source, or asset.
 An empty complete task-inventory snapshot is also unconfirmed; it cannot authorize
 item creation. A successful snapshot may return no matches for the requested names
 while still containing other inventory, such as the distributor runtime.
@@ -51,6 +55,47 @@ and rediscovered by their actual task item ID. Only temporary items created by
 that operation are eligible for cleanup. After an interrupted operation, inspect
 its outcome before retrying; unconfirmed temporary inventory may need inspection
 instead of automatic deletion.
+
+### Required Experience
+
+Script writes may add `expectedExperienceId` with a nonzero UUID. It is optional
+and defaults to `null`; omitted requests retain the existing upload behavior and
+do not require Experience authority or metadata. Omission does not promise to
+preserve an existing association. A zero UUID or an expectation on a notecard is
+invalid; this API does not expose clearing an association.
+
+Before inventory work, a required Experience write checks `GetCreatorExperiences`,
+`GetMetadata`, and `UpdateScriptTask` capabilities and requires the expected UUID
+in the bot's creator list. Accepting an Experience in the bot's preferences is
+not creator authority. Missing capabilities return `capability_unavailable`;
+unreadable authority returns `experience_authority_unconfirmed`; confirmed absence
+from the list returns `experience_permission_denied`. These preflight failures
+do not mutate inventory.
+
+The final `UpdateScriptTask` sends the expected UUID in LLSD `experience`, with
+`target: mono` and `is_script_running: false`. Missing-item creation still compiles
+a temporary agent script and copies it stopped, then sets the association on the
+rediscovered task item. The agent-stage upload does not send `experience`.
+
+After the final compilation response, fresh source, stopped state, permissions,
+asset ID, and exact uploaded item ID must all match. An independent, uncached
+`GetMetadata` POST supplies `object-id`, `item-id`, and `fields: ["experience"]`.
+`success: true` additionally requires its UUID to equal `expectedExperienceId`.
+Unknown metadata returns `experience_unconfirmed` (retryable); a confirmed zero
+or different association returns `experience_mismatch` (not retryable). Both are
+unsuccessful write results with `uploadSucceeded: true` and `outcomeUnknown: true`:
+inspect the existing item before any retry, never create a replacement on that
+basis. Metadata reads have a five-second bound inside the overall operation budget.
+
+Wire semantics are based on the official viewer's
+[task-script upload body](https://github.com/secondlife/viewer/blob/0a60806f8973c05b68cf65a5a01c41d81ff2da7b/indra/newview/llviewerassetupload.cpp#L833),
+[association metadata request](https://github.com/secondlife/viewer/blob/0a60806f8973c05b68cf65a5a01c41d81ff2da7b/indra/llmessage/llexperiencecache.cpp#L571),
+and [creator list request](https://github.com/secondlife/viewer/blob/0a60806f8973c05b68cf65a5a01c41d81ff2da7b/indra/newview/llpreviewscript.cpp#L1575).
+LibreMetaverse 2.6.7 exposes the capabilities/HTTP client, but its
+[script update wrapper](https://github.com/cinderblocks/libremetaverse/blob/v2.6.7/LibreMetaverse/Inventory/InventoryManager.Task.cs#L124)
+has no Experience parameter. Munibot uses direct awaited CAPS requests. Source
+inspection and automated tests establish this protocol implementation, not actual
+simulator acceptance or downstream `llRemoteLoadScriptPin` behavior.
 
 The two CAPS stages are both awaited. Only the final upload/compilation response,
 followed by fresh source and running-state readback, can produce `success: true`.
@@ -108,6 +153,23 @@ inventory is readable and nonempty. The harness leaves that seed untouched.
 The harness refuses existing probe names, then tests creation, same-item update,
 stopped state, compilation failure/repair, notecard replacement, and readback.
 It leaves its two named probe items for manual inspection and cleanup.
+
+Pass `-ExpectedExperienceId` to additionally test required Experience on creation,
+same-item update, compile failure/repair, and an independent final inspection.
+Keep target IDs, Experience IDs, credentials, source responses, and configuration
+private; publish only sanitized outcomes and the deployed commit/image identity.
+The harness uses disposable probe source, not the scanner pair, and leaves scripts
+stopped. It does not prove scanner attachment behavior.
+
+For Munibase #1097, deploy the reviewed Munibot image with these contract fields,
+confirm the bot has creator authority for the required Experience, then run the
+harness against an explicitly identified disposable object containing a seed
+notecard. After that, the #1097 owner must prove both actual scanner scripts on
+a disposable scanner through distributor stock and managed target update, verify
+their installed Experience and versions, retain the local HUD object/permissions
+and unrelated inventory, and observe HUD detection/attachment recovery. Keep
+catalog enrollment and production rollout disabled until those gates pass. An
+unmerged PR or green tests cannot close this in-world gate.
 
 Also test the actual ownership and modify-permission arrangement and interrupted
 connectivity. Munibase's canary acceptance separately verifies manifest reload,

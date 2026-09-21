@@ -5,6 +5,29 @@ namespace Munibot;
 
 internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simulator, Primitive primitive) : ITaskInventoryTarget
 {
+    private readonly TaskInventoryExperience experiences = new(
+        name => simulator.Caps?.CapabilityURI(name),
+        async (uri, ct) =>
+        {
+            using var response = await client.HttpCapsClient.GetAsync(uri, ct);
+            response.EnsureSuccessStatusCode();
+            return TaskInventoryAssetCodec.ReadResponse(await response.Content.ReadAsByteArrayAsync(ct));
+        },
+        async (uri, body, ct) =>
+        {
+            var result = await client.HttpCapsClient.PostAsync(uri, OSDFormat.Xml, body, ct);
+            using var response = result.response;
+            response.EnsureSuccessStatusCode();
+            return TaskInventoryAssetCodec.ReadResponse(result.data);
+        });
+
+    public async Task PreflightExperienceAsync(Guid experienceId, CancellationToken ct)
+    {
+        EnsureSimulator();
+        await experiences.PreflightAsync(experienceId, ct);
+        EnsureSimulator();
+    }
+
     private readonly TaskInventoryAssetReader sourceReader = new((item, callback) =>
         client.Assets.RequestInventoryAsset(item.AssetUUID, item.UUID, primitive.ID, item.OwnerID,
             item.AssetType, true, UUID.Random(), callback),
@@ -26,21 +49,27 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             var hash = "";
             var assetId = item.AssetUUID;
             bool? running = null;
+            Guid? experience = null;
             if (modify && kind is "script" or "notecard")
             {
                 var source = await sourceReader.ReadAsync(item, ct);
                 assetId = source.AssetId;
                 hash = TaskInventoryContent.Hash(source.Source);
-                if (kind == "script") running = await ReadRunningAsync(item, ct);
+                if (kind == "script")
+                {
+                    running = await ReadRunningAsync(item, ct);
+                    experience = await experiences.ReadAsync(primitive.ID, item.UUID, ct);
+                    EnsureSimulator();
+                }
             }
             results.Add(new(item.Name, item.UUID.ToString(), assetId.ToString(), kind,
-                modify, Has(item, PermissionMask.Copy), Has(item, PermissionMask.Transfer), running, hash));
+                modify, Has(item, PermissionMask.Copy), Has(item, PermissionMask.Transfer), running, hash, experience));
         }
         return results;
     }
 
     public async Task<TaskInventoryUploadResult> UploadAsync(string name, string contentType, byte[] source,
-        TaskInventoryItemDto? existing, CancellationToken ct)
+        TaskInventoryItemDto? existing, Guid? expectedExperienceId, CancellationToken ct)
     {
         var itemId = existing is null ? UUID.Zero : UUID.Parse(existing.ItemId);
         InventoryItem? temporary = null;
@@ -66,7 +95,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                     });
                 temporary = await created.Task.WaitAsync(ct);
                 temporaryId = temporary.UUID;
-                var agentResult = await UploadAssetAsync(temporary.UUID, contentType, source, false, ct);
+                var agentResult = await UploadAssetAsync(temporary.UUID, contentType, source, false, null, ct);
                 if (!agentResult.Uploaded || (contentType == "script" && agentResult.Compiled != true)) return agentResult;
                 temporary.AssetUUID = UUID.Parse(agentResult.AssetId!);
                 temporary = await new TaskInventorySharing(
@@ -106,7 +135,8 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                     throw new TaskInventoryException("inventory_changed", "The inventory changed during this operation. Inspect before retrying.", true);
             }
             targetMayHaveChanged = true;
-            return await UploadAssetAsync(itemId, contentType, source, true, ct);
+            var result = await UploadAssetAsync(itemId, contentType, source, true, expectedExperienceId, ct);
+            return result with { ItemId = itemId.ToString() };
         }
         catch (TaskInventoryException ex) when (targetMayHaveChanged && !ex.OutcomeUnknown)
         {
@@ -176,7 +206,8 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         finally { client.Inventory.ScriptRunningReply -= Callback; }
     }
 
-    private async Task<TaskInventoryUploadResult> UploadAssetAsync(UUID itemId, string kind, byte[] source, bool task, CancellationToken ct)
+    private async Task<TaskInventoryUploadResult> UploadAssetAsync(UUID itemId, string kind, byte[] source, bool task,
+        Guid? expectedExperienceId, CancellationToken ct)
     {
         EnsureSimulator();
         var script = kind == "script";
@@ -184,31 +215,16 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             : (task ? "UpdateNotecardTaskInventory" : "UpdateNotecardAgentInventory");
         var capability = simulator.Caps?.CapabilityURI(capName)
             ?? throw new TaskInventoryException("capability_unavailable", "The simulator does not offer the required inventory upload capability.", true);
-        var body = new OSDMap { ["item_id"] = OSD.FromUUID(itemId) };
-        if (task) body["task_id"] = OSD.FromUUID(primitive.ID);
-        if (script)
-        {
-            body["target"] = OSD.FromString("mono");
-            if (task) body["is_script_running"] = OSD.FromBoolean(false);
-        }
-        else
+        var body = TaskInventoryAssetCodec.UploadBody(itemId, task ? primitive.ID : null, script, expectedExperienceId);
+        if (!script)
         {
             source = TaskInventoryAssetCodec.EncodeNotecard(source);
         }
 
-        // Await both CAPS stages directly. The SDK convenience method dispatches the final upload in a detached Task.
-        var handshake = await client.HttpCapsClient.PostAsync(capability, OSDFormat.Xml, body, ct);
-        using var handshakeResponse = handshake.response;
-        if (!handshakeResponse.IsSuccessStatusCode)
-            throw new TaskInventoryException("upload_rejected", "The simulator rejected the upload handshake.", true);
-        if (OSDParser.Deserialize(handshake.data) is not OSDMap response || response["state"].AsString() != "upload" ||
-            !Uri.TryCreate(response["uploader"].AsString(), UriKind.Absolute, out var uploader) || uploader.Scheme != "https")
-            throw new TaskInventoryException("upload_rejected", "The simulator rejected the upload handshake.", true);
-        var uploaded = await client.HttpCapsClient.PostAsync(uploader, "application/octet-stream", source, ct);
-        using var uploadResponse = uploaded.response;
-        if (!uploadResponse.IsSuccessStatusCode)
-            throw new TaskInventoryException("upload_unconfirmed", "The simulator did not confirm the final upload. Inspect before retrying.", true, true);
-        return TaskInventoryAssetCodec.ReadCompletion(OSDParser.Deserialize(uploaded.data), script);
+        return await new TaskInventoryAssetUploader(
+            (uri, request, token) => client.HttpCapsClient.PostAsync(uri, OSDFormat.Xml, request, token),
+            (uri, bytes, token) => client.HttpCapsClient.PostAsync(uri, "application/octet-stream", bytes, token))
+            .UploadAsync(capability, body, source, script, ct);
     }
 
     private void EnsureSimulator()

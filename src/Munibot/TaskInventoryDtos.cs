@@ -4,11 +4,11 @@ public sealed record TaskInventoryInspectRequestDto(string Region, Vector3Dto Po
 
 public sealed record TaskInventoryWriteRequestDto(
     string Region, Vector3Dto Position, string ContentType, string SourceDataBase64,
-    string ExpectedSha256, string RequestId);
+    string ExpectedSha256, string RequestId, Guid? ExpectedExperienceId = null);
 
 public sealed record TaskInventoryItemDto(
     string Name, string ItemId, string AssetId, string ContentType,
-    bool CanModify, bool CanCopy, bool CanTransfer, bool? Running, string SourceSha256);
+    bool CanModify, bool CanCopy, bool CanTransfer, bool? Running, string SourceSha256, Guid? ExperienceId = null);
 
 public sealed record TaskInventoryInspectResultDto(string ObjectUuid, IReadOnlyList<TaskInventoryItemDto> Items);
 
