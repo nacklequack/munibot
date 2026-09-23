@@ -13,7 +13,7 @@ public sealed class TaskInventoryErrorResponseTests
     [InlineData(true, 503)]
     public async Task ErrorResponsePreservesDiagnosticsAndRetryDisposition(bool retryable, int status)
     {
-        var item = new InventoryItem(UUID.Random()) { OwnerID = UUID.Random(), GroupID = UUID.Random(), AssetType = AssetType.LSLText };
+        var item = new InventoryItem(UUID.Random()) { Name = "warning.notecard", OwnerID = UUID.Random(), GroupID = UUID.Random(), AssetType = AssetType.Notecard };
         var details = TaskInventorySourceDiagnosticsDto.Capture(UUID.Random(), item.GroupID, UUID.Random(), item)
             with { TransferStatus = retryable ? "Error" : "InsufficientPermissions", TransferSucceeded = false };
         var code = retryable ? "source_unreadable" : "source_permission_denied";
@@ -39,6 +39,7 @@ public sealed class TaskInventoryErrorResponseTests
         Assert.Equal(details.ItemOwnerId, observed.GetProperty("itemOwnerId").GetString());
         Assert.Equal(details.ActiveGroupId, observed.GetProperty("activeGroupId").GetString());
         Assert.Equal(details.TransferStatus, observed.GetProperty("transferStatus").GetString());
+        Assert.Equal(item.Name, observed.GetProperty("itemName").GetString());
         Assert.False(observed.TryGetProperty("source", out _));
         Assert.False(observed.TryGetProperty("sessionId", out _));
     }
