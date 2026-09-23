@@ -71,6 +71,7 @@ public sealed class TaskInventoryAssetReaderTests
     public async Task SimulatorPermissionDenialIsNotRetryableAndPreservesRequestDiagnostics(AssetType type)
     {
         var item = Item(type);
+        item.Name = type == AssetType.Notecard ? "warning.notecard" : "payload.lsl";
         var owner = item.OwnerID;
         var group = UUID.Random();
         item.GroupID = group;
@@ -99,6 +100,7 @@ public sealed class TaskInventoryAssetReaderTests
         Assert.Equal(group.ToString(), details.ActiveGroupId);
         Assert.Equal(target.ToString(), details.ObjectId);
         Assert.Equal(item.UUID.ToString(), details.ItemId);
+        Assert.Equal(item.Name, details.ItemName);
         Assert.Equal(UUID.Zero.ToString(), details.RequestedAssetId);
         Assert.Equal(owner.ToString(), details.ItemOwnerId);
         Assert.Equal(group.ToString(), details.ItemGroupId);
