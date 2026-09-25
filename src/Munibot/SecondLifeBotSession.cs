@@ -2469,6 +2469,8 @@ public sealed partial class SecondLifeBotSession(
                 LogSecondLifeEvent("instant-message", e);
             }
         };
+        _client.Inventory.InventoryObjectOffered += (_, e) => HandleArtifactOffer(e);
+        _client.Inventory.TaskItemReceived += (_, e) => _ = HandleArtifactItemReceivedAsync(e);
 
         if (config.Diagnostics.LogSecondLifeEvents)
         {
@@ -2476,7 +2478,6 @@ public sealed partial class SecondLifeBotSession(
             _client.Self.TeleportProgress += (_, e) => LogSecondLifeEvent("teleport-progress", e);
             _client.Self.AlertMessage += (_, e) => LogSecondLifeEvent("alert-message", e);
             _client.Self.ScriptDialog += (_, e) => LogSecondLifeEvent("script-dialog", e);
-            _client.Inventory.InventoryObjectOffered += (_, e) => LogSecondLifeEvent("inventory-offer", e);
         }
 
         _eventsWired = true;

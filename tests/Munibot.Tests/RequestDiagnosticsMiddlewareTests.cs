@@ -102,6 +102,31 @@ public sealed class RequestDiagnosticsMiddlewareTests
         Assert.Equal("{\"status\":\"ok\"}", await responseReader.ReadToEndAsync());
     }
 
+    [Theory]
+    [InlineData("/api/inventory/artifact-offers/6f37bec7-a7bb-44cb-8a80-f511807858df")]
+    [InlineData("/api/objects/6f37bec7-a7bb-44cb-8a80-f511807858df/inventory/artifacts/992dd7cc-9813-42dd-b759-ceeafc4fd6e7")]
+    public async Task InvokeAsync_ForArtifactRelayPath_SkipsPrivateDiagnostics(string path)
+    {
+        var config = new BotConfig
+        {
+            Diagnostics = new BotDiagnosticsConfig { LogApiCalls = true, LogApiBodies = true }
+        };
+        var logger = new CapturingLogger<RequestDiagnosticsMiddleware>();
+        var middleware = new RequestDiagnosticsMiddleware(
+            context => context.Response.WriteAsync("{\"private\":\"identity\"}"), config, logger);
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Method = "PUT";
+        httpContext.Request.Path = path;
+        httpContext.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes("{\"assetId\":\"private\"}"));
+        httpContext.Request.ContentLength = httpContext.Request.Body.Length;
+        httpContext.Request.ContentType = "application/json";
+        httpContext.Response.Body = new MemoryStream();
+
+        await middleware.InvokeAsync(httpContext);
+
+        Assert.Empty(logger.Messages);
+    }
+
     [Fact]
     public async Task InvokeAsync_WhenDownstreamThrows_LogsOnlyFailure()
     {

@@ -80,9 +80,10 @@ lsl_commands:
   # shared_secret: replace-with-lsl-command-secret
   max_sit_distance_meters: 5
 
-# If no tokens are configured, API calls except task-inventory access are allowed for local development.
+# If no tokens are configured, API calls except task-inventory, artifact-relay, and active-group access are allowed for local development.
 # Configure tokens in production. Send either X-Munibot-Token or Authorization: Bearer.
-# Replenishment requires an explicitly provisioned token with sl.inventory.task.write.
+# Replenishment requires sl.inventory.task.write; raw scanner artifacts use the separate
+# sl.inventory.artifact.relay scope.
 tokens:
   - id: munibase
     value: replace-with-long-random-token
@@ -102,6 +103,8 @@ tokens:
       - sl.texture.upload
       - sl.inventory.give
       - sl.inventory.rez
+      - sl.inventory.task.write
+      - sl.inventory.artifact.relay
       - sl.wallet.read
       - sl.wallet.history
       - sl.wallet.pay

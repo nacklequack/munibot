@@ -297,6 +297,12 @@ Rezzed object script/notecard inspection and verified source updates use the sep
 `sl.inventory.task.write` scope. See [task inventory transport](docs/task-inventory.md)
 for the wire contract, timeout recovery, and disposable-object acceptance harness.
 
+Raw Scanner HUD and Scanner Titler transport uses the narrower
+`sl.inventory.artifact.relay` scope. It accepts only a short-lived expected offer,
+then copies that verified receipt only to an exact managed scanner with exact bundle
+markers. See [scanner artifact relay](docs/artifact-relay.md) for the evidence boundary,
+request/receipt contract, retry rules, and controlled canary.
+
 ## Wallet
 
 Fetch the current in-world Linden balance:
