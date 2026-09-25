@@ -28,6 +28,7 @@ try
 
     builder.Services.AddSingleton(botConfig);
     builder.Services.AddSingleton<SecondLifeBotSession>();
+    builder.Services.AddSingleton<IArtifactRelayService>(services => services.GetRequiredService<SecondLifeBotSession>());
     builder.Services.AddSingleton<IActiveGroupService>(services => services.GetRequiredService<SecondLifeBotSession>().ActiveGroupService);
     builder.Services.AddSingleton<ISecondLifeAccountHistoryClient, SecondLifeAccountHistoryClient>();
     if (botConfig.Munibase.WalletEvents.IsConfigured)
@@ -45,6 +46,7 @@ try
 
     app.UseMiddleware<RequestDiagnosticsMiddleware>();
     app.MapTaskInventoryEndpoints();
+    app.MapArtifactRelayEndpoints();
     app.MapActiveGroupEndpoints();
 
     app.MapTrafficEndpoints();

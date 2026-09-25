@@ -149,6 +149,60 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         }
     }
 
+    public async Task<ArtifactTargetRelayResult> RelayArtifactAsync(InventoryItem source,
+        ArtifactRelaySpec spec, CancellationToken ct)
+    {
+        EnsureSimulator();
+        VerifyArtifactSource(source);
+
+        var properties = await ReadPropertiesAsync(ct);
+        VerifyTargetIdentity(properties, spec);
+
+        UUID sourceGroup;
+        try { sourceGroup = TaskInventorySharing.SelectGroup(client.Self.AgentID, client.Self.ActiveGroup, properties); }
+        catch (TaskInventoryException ex)
+        {
+            throw new ArtifactRelayException("target_permission_denied", ex.Message, ex.Retryable, ex.OutcomeUnknown);
+        }
+        VerifySourceSharing(source, sourceGroup);
+
+        var before = await ReadInventoryAsync(ct);
+        VerifyBundle(before, spec.BundleMarkers);
+        var prior = FindExactName(before, source.Name);
+        if (prior is not null)
+        {
+            VerifyDelivered(prior, source, spec.ExpectedTargetPermissions, false);
+            return new(false, true, prior);
+        }
+
+        var delivery = Copy(source);
+        delivery.GroupID = sourceGroup;
+        client.Inventory.UpdateTaskInventory(primitive.LocalID, delivery, simulator);
+        try
+        {
+            for (var attempt = 0; attempt < 40; attempt++)
+            {
+                var current = FindExactName(await ReadInventoryAsync(ct), source.Name);
+                if (current is not null)
+                {
+                    VerifyDelivered(current, source, spec.ExpectedTargetPermissions, true);
+                    return new(true, false, current);
+                }
+                await Task.Delay(250, ct);
+            }
+        }
+        catch (TaskInventoryException ex)
+        {
+            throw new ArtifactRelayException(ex.Code, ex.Message, ex.Retryable, true);
+        }
+        catch (ArtifactRelayException ex) when (!ex.OutcomeUnknown)
+        {
+            throw new ArtifactRelayException(ex.Code, ex.Message, ex.Retryable, true);
+        }
+        throw new ArtifactRelayException("copy_unconfirmed",
+            "The exact object copy was not confirmed in target inventory. Inspect before retrying.", true, true);
+    }
+
     private Task<Primitive.ObjectProperties> ReadPropertiesAsync(CancellationToken ct) =>
         new TaskInventoryReadRetry().RunAsync(ReadPropertiesOnceAsync, "object_properties_timeout",
             "Object permission inspection timed out. Inspect the target before retrying.", ct);
@@ -234,8 +288,90 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
     }
 
     private static bool Has(InventoryItem item, PermissionMask mask) => (item.Permissions.OwnerMask & mask) == mask;
+
+    internal static void VerifyArtifactSource(InventoryItem source)
+    {
+        if (source.AssetType != AssetType.Object || source.InventoryType != InventoryType.Object ||
+            source.AssetUUID == UUID.Zero)
+            throw new ArtifactRelayException("source_type_mismatch",
+                "The verified source is not an exact object inventory item.");
+        if (!Has(source, PermissionMask.Copy) || !Has(source, PermissionMask.Transfer))
+            throw new ArtifactRelayException("source_permission_denied",
+                "The source object must remain copyable and transferable.");
+    }
+
+    internal static void VerifyTargetIdentity(Primitive.ObjectProperties properties, ArtifactRelaySpec spec)
+    {
+        if (properties.ObjectID != spec.TargetObjectId || properties.Name != spec.TargetName ||
+            properties.OwnerID != spec.TargetOwnerId || properties.GroupID != spec.TargetGroupId)
+            throw new ArtifactRelayException("target_identity_mismatch",
+                "The visible object does not match the exact managed scanner identity.");
+    }
+
+    internal static void VerifySourceSharing(InventoryItem source, UUID sourceGroup)
+    {
+        if (sourceGroup != UUID.Zero &&
+            (source.Permissions.GroupMask & TaskInventorySharing.SharedSourceMask) != TaskInventorySharing.SharedSourceMask)
+            throw new ArtifactRelayException("source_permission_denied",
+                "The source object does not carry the group sharing required by the managed scanner.");
+    }
+
+    internal static void VerifyBundle(IReadOnlyList<InventoryItem> inventory,
+        IReadOnlyList<ArtifactBundleMarkerSpec> markers)
+    {
+        foreach (var marker in markers)
+        {
+            var matches = inventory.Where(x => x.Name.Equals(marker.Name, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count != 1 || matches[0].Name != marker.Name || matches[0].AssetType != marker.AssetType ||
+                matches[0].AssetUUID != marker.AssetId)
+                throw new ArtifactRelayException("bundle_mismatch",
+                    "The target inventory did not match the exact managed bundle markers.");
+        }
+    }
+
+    internal static InventoryItem? FindExactName(IReadOnlyList<InventoryItem> inventory, string name)
+    {
+        var matches = inventory.Where(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (matches.Count > 1 || matches.Count == 1 && matches[0].Name != name)
+            throw new ArtifactRelayException("target_inventory_conflict",
+                "The target already contains an ambiguous artifact name.");
+        return matches.SingleOrDefault();
+    }
+
+    internal static void VerifyDelivered(InventoryItem target, InventoryItem source,
+        InventoryPermissionMasksDto expectedPermissions, bool outcomeUnknown)
+    {
+        if (target.Name != source.Name || target.AssetType != AssetType.Object ||
+            target.InventoryType != InventoryType.Object || target.AssetUUID != source.AssetUUID ||
+            !expectedPermissions.Matches(target.Permissions))
+            throw new ArtifactRelayException("target_receipt_mismatch",
+                "The target object copy did not match the expected identity and permissions.", false, outcomeUnknown);
+    }
+
+    private static InventoryItem Copy(InventoryItem item) => new(item.InventoryType, item.UUID)
+    {
+        ParentUUID = item.ParentUUID,
+        Name = item.Name,
+        OwnerID = item.OwnerID,
+        AssetUUID = item.AssetUUID,
+        Permissions = item.Permissions,
+        AssetType = item.AssetType,
+        CreatorID = item.CreatorID,
+        Description = item.Description,
+        GroupID = item.GroupID,
+        GroupOwned = item.GroupOwned,
+        SalePrice = item.SalePrice,
+        SaleType = item.SaleType,
+        Flags = item.Flags,
+        CreationDate = item.CreationDate,
+        TransactionID = item.TransactionID,
+        LastOwnerID = item.LastOwnerID
+    };
+
     private static string Kind(AssetType assetType) => assetType switch
     {
-        AssetType.LSLText => "script", AssetType.Notecard => "notecard", _ => "unsupported"
+        AssetType.LSLText => "script",
+        AssetType.Notecard => "notecard",
+        _ => "unsupported"
     };
 }

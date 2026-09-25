@@ -10,7 +10,9 @@ public sealed class RequestDiagnosticsMiddleware(
 {
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!config.Diagnostics.LogApiCalls || IsProbePath(context.Request.Path) || TaskInventoryEndpoints.IsSensitivePath(context.Request.Path))
+        if (!config.Diagnostics.LogApiCalls || IsProbePath(context.Request.Path) ||
+            TaskInventoryEndpoints.IsSensitivePath(context.Request.Path) ||
+            ArtifactRelayEndpoints.IsSensitivePath(context.Request.Path))
         {
             await next(context);
             return;

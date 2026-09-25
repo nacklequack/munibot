@@ -25,7 +25,8 @@ public sealed partial class SecondLifeBotSession
     }
 
     private async Task<T> InTaskInventoryAsync<T>(string objectUuid, string region, Vector3Dto position,
-        Func<ITaskInventoryTarget, CancellationToken, Task<T>> action, CancellationToken ct)
+        Func<ITaskInventoryTarget, CancellationToken, Task<T>> action, CancellationToken ct,
+        bool suppressSensitiveDiagnostics = false)
     {
         if (!UUID.TryParse(objectUuid, out var objectId) || objectId == UUID.Zero)
             throw new ArgumentException("Object UUID must be a nonzero UUID.");
@@ -66,23 +67,29 @@ public sealed partial class SecondLifeBotSession
                     {
                         CameraInterestRefresh.AimAtAndSend(_client, CameraInterestRefresh.OffsetViewOf(destination),
                             destination, () => _client.Self.Movement.SendUpdate(false));
-                        logger.LogInformation("Task inventory camera aimed from offset view; target={TargetId} camera={CameraPosition} cameraAt={CameraAtAxis}",
-                            objectId, _client.Self.Movement.Camera.Position, _client.Self.Movement.Camera.AtAxis);
+                        if (suppressSensitiveDiagnostics)
+                            logger.LogInformation("Task inventory camera refresh attempted for private artifact target");
+                        else
+                            logger.LogInformation("Task inventory camera aimed from offset view; target={TargetId} camera={CameraPosition} cameraAt={CameraAtAxis}",
+                                objectId, _client.Self.Movement.Camera.Position, _client.Self.Movement.Camera.AtAxis);
                     }
                     if (primitive is null) await Task.Delay(250, token);
                 }
                 if (primitive is null)
                 {
-                    logger.LogWarning(
-                        "Task inventory target not visible after 10 seconds; target={TargetId} requestedRegion={RequestedRegion} requestedPosition={RequestedPosition} simulator={Simulator} avatar={AvatarPosition} camera={CameraPosition} cameraAt={CameraAtAxis} cachedPrimitives={CachedPrimitiveCount}",
-                        objectId,
-                        regionName,
-                        destination,
-                        simulator.Name,
-                        _client.Self.SimPosition,
-                        _client.Self.Movement.Camera.Position,
-                        _client.Self.Movement.Camera.AtAxis,
-                        simulator.ObjectsPrimitives.Count);
+                    if (suppressSensitiveDiagnostics)
+                        logger.LogWarning("Private artifact target not visible after 10 seconds");
+                    else
+                        logger.LogWarning(
+                            "Task inventory target not visible after 10 seconds; target={TargetId} requestedRegion={RequestedRegion} requestedPosition={RequestedPosition} simulator={Simulator} avatar={AvatarPosition} camera={CameraPosition} cameraAt={CameraAtAxis} cachedPrimitives={CachedPrimitiveCount}",
+                            objectId,
+                            regionName,
+                            destination,
+                            simulator.Name,
+                            _client.Self.SimPosition,
+                            _client.Self.Movement.Camera.Position,
+                            _client.Self.Movement.Camera.AtAxis,
+                            simulator.ObjectsPrimitives.Count);
                     throw new TaskInventoryException("target_unreachable", "The exact target object is not visible in the target region.", true);
                 }
                 if (primitive.IsAttachment)
