@@ -154,6 +154,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
     {
         EnsureSimulator();
         VerifyArtifactSource(source);
+        VerifyTargetPermissionPolicy(source, spec.ExpectedTargetPermissions);
 
         var properties = await ReadPropertiesAsync(ct);
         VerifyTargetIdentity(properties, spec);
@@ -175,7 +176,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             return new(false, true, prior);
         }
 
-        var delivery = Copy(source);
+        var delivery = PrepareDelivery(source, spec.ExpectedTargetPermissions);
         delivery.GroupID = sourceGroup;
         client.Inventory.UpdateTaskInventory(primitive.LocalID, delivery, simulator);
         try
@@ -295,9 +296,20 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             source.AssetUUID == UUID.Zero)
             throw new ArtifactRelayException("source_type_mismatch",
                 "The verified source is not an exact object inventory item.");
-        if (!Has(source, PermissionMask.Copy) || !Has(source, PermissionMask.Transfer))
+        if (!Has(source, PermissionMask.Modify) || !Has(source, PermissionMask.Copy) ||
+            !Has(source, PermissionMask.Transfer))
             throw new ArtifactRelayException("source_permission_denied",
-                "The source object must remain copyable and transferable.");
+                "The source object must remain modifiable, copyable and transferable.");
+    }
+
+    internal static void VerifyTargetPermissionPolicy(InventoryItem source,
+        InventoryPermissionMasksDto target)
+    {
+        var copyOnly = (uint)(PermissionMask.Move | PermissionMask.Copy);
+        if (target.Base != (uint)source.Permissions.BaseMask || target.Owner != copyOnly || target.Group != 0
+            || target.Everyone != 0 || target.NextOwner != copyOnly)
+            throw new ArtifactRelayException("target_permission_policy_invalid",
+                "Scanner artifacts must be installed copy-only, without modify or transfer permission.");
     }
 
     internal static void VerifyTargetIdentity(Primitive.ObjectProperties properties, ArtifactRelaySpec spec)
@@ -348,13 +360,15 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                 "The target object copy did not match the expected identity and permissions.", false, outcomeUnknown);
     }
 
-    private static InventoryItem Copy(InventoryItem item) => new(item.InventoryType, item.UUID)
+    internal static InventoryItem PrepareDelivery(InventoryItem item,
+        InventoryPermissionMasksDto targetPermissions) => new(item.InventoryType, item.UUID)
     {
         ParentUUID = item.ParentUUID,
         Name = item.Name,
         OwnerID = item.OwnerID,
         AssetUUID = item.AssetUUID,
-        Permissions = item.Permissions,
+        Permissions = new Permissions(targetPermissions.Base, targetPermissions.Everyone,
+            targetPermissions.Group, targetPermissions.NextOwner, targetPermissions.Owner),
         AssetType = item.AssetType,
         CreatorID = item.CreatorID,
         Description = item.Description,

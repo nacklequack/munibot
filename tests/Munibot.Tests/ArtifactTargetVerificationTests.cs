@@ -10,19 +10,52 @@ public sealed class ArtifactTargetVerificationTests
     private static readonly UUID Group = UUID.Random();
     private static readonly UUID Asset = UUID.Random();
     private static readonly InventoryPermissionMasksDto TargetMasks = new(
-        (uint)PermissionMask.All, (uint)PermissionMask.All,
-        (uint)TaskInventorySharing.SharedSourceMask, 0,
-        (uint)(PermissionMask.Move | PermissionMask.Copy | PermissionMask.Transfer));
+        (uint)PermissionMask.All, (uint)(PermissionMask.Move | PermissionMask.Copy),
+        0, 0, (uint)(PermissionMask.Move | PermissionMask.Copy));
 
-    [Fact]
-    public void RejectsSourceWithoutCopyOrTransferBeforeMutation()
+    [Theory]
+    [InlineData(PermissionMask.Modify)]
+    [InlineData(PermissionMask.Copy)]
+    [InlineData(PermissionMask.Transfer)]
+    public void RejectsSourceWithoutRequiredPermissionBeforeMutation(PermissionMask missing)
     {
         var item = Source();
-        item.Permissions = new Permissions((uint)PermissionMask.All, 0, 0, 0,
-            (uint)PermissionMask.Transfer);
+        item.Permissions.OwnerMask &= ~missing;
         var error = Assert.Throws<ArtifactRelayException>(() =>
             GridTaskInventoryTarget.VerifyArtifactSource(item));
         Assert.Equal("source_permission_denied", error.Code);
+        Assert.False(error.OutcomeUnknown);
+    }
+
+    [Fact]
+    public void PreparesCopyOnlyDeliveryWithoutChangingBotSource()
+    {
+        var source = Source();
+        var original = source.Permissions;
+
+        GridTaskInventoryTarget.VerifyTargetPermissionPolicy(source, TargetMasks);
+        var delivery = GridTaskInventoryTarget.PrepareDelivery(source, TargetMasks);
+
+        Assert.Equal(TargetMasks, InventoryPermissionMasksDto.From(delivery.Permissions));
+        Assert.Equal(InventoryPermissionMasksDto.From(original),
+            InventoryPermissionMasksDto.From(source.Permissions));
+        Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Copy) != 0);
+        Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Modify) == 0);
+        Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Transfer) == 0);
+    }
+
+    [Theory]
+    [InlineData(PermissionMask.Modify)]
+    [InlineData(PermissionMask.Transfer)]
+    public void RejectsOverPermissiveScannerTarget(PermissionMask permission)
+    {
+        var copyOnly = (uint)(PermissionMask.Move | PermissionMask.Copy);
+        var requested = TargetMasks with { Owner = copyOnly | (uint)permission };
+
+        var error = Assert.Throws<ArtifactRelayException>(() =>
+            GridTaskInventoryTarget.VerifyTargetPermissionPolicy(Source(), requested));
+
+        Assert.Equal("target_permission_policy_invalid", error.Code);
         Assert.False(error.OutcomeUnknown);
     }
 
