@@ -47,7 +47,7 @@ Register the gate before commanding the drop box to call `llGiveInventory`:
     "owner": 2147483647,
     "group": 0,
     "everyone": 0,
-    "nextOwner": 532480
+    "nextOwner": 581632
   }
 }
 ```
@@ -127,10 +127,10 @@ receipt for `{requestId}`:
   ],
   "expectedTargetPermissions": {
     "base": 2147483647,
-    "owner": 532480,
+    "owner": 557056,
     "group": 0,
     "everyone": 0,
-    "nextOwner": 532480
+    "nextOwner": 557056
   }
 }
 ```
@@ -143,9 +143,15 @@ object properties and requires exact target UUID, name, owner, and group plus ev
 exact case-sensitive bundle marker name/type/asset ID.
 
 The bot receipt must still match the live source item. The source must be an object with
-copy and transfer permissions, so delivery cannot move or consume it. Another-owner
-managed targets must use the bot's active group and the source must already carry the
-required group-sharing mask; this endpoint never rewrites raw-artifact permissions.
+modify, copy and transfer permissions, so Rosalind can retain the source, restrict the
+outgoing copy, and transfer it to the scanner. Another-owner managed targets must use the
+bot's active group and the source must already carry the required group-sharing mask.
+
+The target permission contract is intentionally different from the source contract.
+Munibot changes the outgoing copy to Copy plus Second Life's Move bit and removes Modify
+and Transfer from both its Owner and Next Owner masks. Base remains the source object's
+exact base mask; Group and Everyone are zero. Munibot rejects any other target policy,
+keeps the full-permission source in bot inventory, and requires exact target readback.
 
 Before mutation, an existing exact name is either an exact identity/permission match
 (idempotent success) or a conflict. Munibot never removes or replaces a scanner item.
