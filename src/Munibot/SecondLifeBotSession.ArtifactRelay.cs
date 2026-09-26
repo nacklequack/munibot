@@ -79,10 +79,13 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                 var item = await _client.Inventory.FetchItemAsync(received.ItemID, _client.Self.AgentID,
                     deadline.Token) ?? throw new ArtifactRelayException("receipt_unconfirmed",
                         "The accepted inventory item could not be fetched.", true, true);
-                if (_artifactOfferGate.Complete(item, _client.Self.AgentID, DateTimeOffset.UtcNow))
+                if (_artifactOfferGate.Complete(item, _client.Self.AgentID, DateTimeOffset.UtcNow,
+                        out var mismatchSummary))
                     logger.LogInformation("Artifact task receipt verified");
                 else
-                    logger.LogWarning("Artifact task receipt did not match the registered expectation");
+                    logger.LogWarning(
+                        "Artifact task receipt did not match the registered expectation; fields={Fields}",
+                        mismatchSummary ?? "receipt state");
             }
             finally { _inventoryLock.Release(); }
         }

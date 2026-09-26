@@ -76,21 +76,27 @@ internal sealed class ArtifactOfferGate(TimeSpan? lifetime = null)
         }
     }
 
-    public bool Complete(InventoryItem item, UUID botId, DateTimeOffset now)
+    public bool Complete(InventoryItem item, UUID botId, DateTimeOffset now, out string? mismatchSummary)
     {
         lock (sync)
         {
+            mismatchSummary = null;
             ExpireActive(now);
             if (activeRequestId is null || !entries.TryGetValue(activeRequestId.Value, out var entry) ||
                 entry.Status != "receiving" || entry.ReceivedItemId != item.UUID) return false;
             var expected = entry.Expectation;
-            var mismatch = item.AssetType != AssetType.Object || item.InventoryType != InventoryType.Object ||
-                item.OwnerID != botId || item.AssetUUID != expected.AssetId || item.Name != expected.InventoryName ||
-                !expected.Permissions.Matches(item.Permissions);
-            if (mismatch)
+            var mismatches = new List<string>();
+            if (item.AssetType != AssetType.Object) mismatches.Add("asset type");
+            if (item.InventoryType != InventoryType.Object) mismatches.Add("inventory type");
+            if (item.OwnerID != botId) mismatches.Add("owner");
+            if (item.AssetUUID != expected.AssetId) mismatches.Add("asset identity");
+            if (item.Name != expected.InventoryName) mismatches.Add("inventory name");
+            mismatches.AddRange(expected.Permissions.TransferredReceiptMismatches(item.Permissions));
+            if (mismatches.Count != 0)
             {
+                mismatchSummary = string.Join(", ", mismatches);
                 Fail(entry, "receipt_mismatch",
-                    "The received inventory item did not match the expected identity and permissions.", false, false);
+                    $"The received inventory item did not match the expected {mismatchSummary}.", false, false);
                 return false;
             }
             entry.Status = "received";
