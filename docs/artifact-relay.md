@@ -28,8 +28,11 @@ command binding; it is not a claim that the grid offer attested the source UUID.
 Munibot independently proves the wire-visible owner, source object name, inventory
 name, and object type before accepting. After acceptance it fetches the exact new bot
 inventory item ID and requires the exact name, object asset/inventory types, asset UUID,
-bot ownership, and all five permission masks. Only that completed receipt can be used
-by the scanner route.
+and bot ownership. Permission verification follows the grid's ownership-transfer rule:
+the source next-owner mask becomes Rosalind's owner mask, reserved mask bits are ignored,
+and group/everyone grants may be cleared but never widened. The base and next-owner
+effective permissions must survive. Only that completed receipt can be used by the
+scanner route.
 
 ## Expected offer
 

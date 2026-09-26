@@ -9,6 +9,9 @@ public sealed record InventoryPermissionMasksDto(
     uint Everyone,
     uint NextOwner)
 {
+    private const uint EffectivePermissionMask =
+        (uint)(PermissionMask.Move | PermissionMask.Modify | PermissionMask.Copy | PermissionMask.Transfer);
+
     internal static InventoryPermissionMasksDto From(Permissions permissions) => new(
         (uint)permissions.BaseMask,
         (uint)permissions.OwnerMask,
@@ -17,6 +20,29 @@ public sealed record InventoryPermissionMasksDto(
         (uint)permissions.NextOwnerMask);
 
     internal bool Matches(Permissions permissions) => this == From(permissions);
+
+    internal IReadOnlyList<string> TransferredReceiptMismatches(Permissions permissions)
+    {
+        var received = From(permissions);
+        var mismatches = new List<string>();
+
+        if ((received.Base & EffectivePermissionMask) != (Base & EffectivePermissionMask))
+            mismatches.Add("base permissions");
+
+        // An ownership transfer applies the source's next-owner permissions to the
+        // recipient's owner mask. Group/everyone grants may be cleared by the grid,
+        // but the transfer must never introduce grants the source did not carry.
+        if ((received.Owner & EffectivePermissionMask) != (NextOwner & EffectivePermissionMask))
+            mismatches.Add("owner permissions");
+        if (((received.Group & EffectivePermissionMask) & ~(Group & EffectivePermissionMask)) != 0)
+            mismatches.Add("group permissions");
+        if (((received.Everyone & EffectivePermissionMask) & ~(Everyone & EffectivePermissionMask)) != 0)
+            mismatches.Add("everyone permissions");
+        if ((received.NextOwner & EffectivePermissionMask) != (NextOwner & EffectivePermissionMask))
+            mismatches.Add("next-owner permissions");
+
+        return mismatches;
+    }
 }
 
 public sealed record ArtifactInventoryItemDto(
