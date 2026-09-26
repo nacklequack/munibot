@@ -127,8 +127,7 @@ internal sealed record ArtifactOfferSignal(
     UUID SourceOwnerId,
     string SourceObjectName,
     string InventoryName,
-    AssetType AssetType,
-    UUID ReceivedItemId);
+    AssetType AssetType);
 
 internal sealed record ArtifactOfferDecision(bool Accept, string Reason);
 

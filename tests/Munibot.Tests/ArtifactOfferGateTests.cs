@@ -22,10 +22,11 @@ public sealed class ArtifactOfferGateTests
         var gate = Gate(out var expectation);
         var itemId = UUID.Random();
 
-        var decision = gate.HandleOffer(Signal(itemId), Now.AddSeconds(1));
+        var decision = gate.HandleOffer(Signal(), Now.AddSeconds(1));
 
         Assert.True(decision.Accept);
         Assert.Equal("receiving", gate.Get(expectation.RequestId, Now.AddSeconds(1)).Status);
+        Assert.True(gate.TryBeginReceipt(itemId, Now.AddSeconds(2)));
         gate.Complete(Item(itemId), Bot, Now.AddSeconds(2));
         var status = gate.Get(expectation.RequestId, Now.AddSeconds(2));
         Assert.Equal("received", status.Status);
@@ -39,11 +40,11 @@ public sealed class ArtifactOfferGateTests
     public void UnsolicitedAndLateOffersAreRejected()
     {
         var gate = new ArtifactOfferGate(TimeSpan.FromSeconds(5));
-        Assert.False(gate.HandleOffer(Signal(UUID.Random()), Now).Accept);
+        Assert.False(gate.HandleOffer(Signal(), Now).Accept);
         var expectation = Expectation();
         gate.Register(expectation, Now);
 
-        var late = gate.HandleOffer(Signal(UUID.Random()), Now.AddSeconds(6));
+        var late = gate.HandleOffer(Signal(), Now.AddSeconds(6));
 
         Assert.False(late.Accept);
         var status = gate.Get(expectation.RequestId, Now.AddSeconds(6));
@@ -60,7 +61,7 @@ public sealed class ArtifactOfferGateTests
     public void MismatchedOfferDoesNotConsumeExpectation(string mismatch)
     {
         var gate = Gate(out var expectation);
-        var signal = Signal(UUID.Random()) with
+        var signal = Signal() with
         {
             SourceOwnerId = mismatch == "owner" ? UUID.Random() : SourceOwner,
             SourceObjectName = mismatch == "source-name" ? "Other Drop Box" : "Community Drop Box",
@@ -71,7 +72,7 @@ public sealed class ArtifactOfferGateTests
 
         Assert.False(gate.HandleOffer(signal, Now.AddSeconds(1)).Accept);
         Assert.Equal("pending", gate.Get(expectation.RequestId, Now.AddSeconds(1)).Status);
-        Assert.True(gate.HandleOffer(Signal(UUID.Random()), Now.AddSeconds(2)).Accept);
+        Assert.True(gate.HandleOffer(Signal(), Now.AddSeconds(2)).Accept);
     }
 
     [Fact]
@@ -79,10 +80,11 @@ public sealed class ArtifactOfferGateTests
     {
         var gate = Gate(out _);
         var itemId = UUID.Random();
-        Assert.True(gate.HandleOffer(Signal(itemId), Now.AddSeconds(1)).Accept);
-        Assert.False(gate.HandleOffer(Signal(UUID.Random()), Now.AddSeconds(2)).Accept);
+        Assert.True(gate.HandleOffer(Signal(), Now.AddSeconds(1)).Accept);
+        Assert.False(gate.HandleOffer(Signal(), Now.AddSeconds(2)).Accept);
+        Assert.True(gate.TryBeginReceipt(itemId, Now.AddSeconds(3)));
         gate.Complete(Item(itemId), Bot, Now.AddSeconds(3));
-        Assert.False(gate.HandleOffer(Signal(UUID.Random()), Now.AddSeconds(4)).Accept);
+        Assert.False(gate.HandleOffer(Signal(), Now.AddSeconds(4)).Accept);
     }
 
     [Fact]
@@ -91,7 +93,7 @@ public sealed class ArtifactOfferGateTests
         var expectation = Expectation();
         var gate = new ArtifactOfferGate(TimeSpan.FromSeconds(5));
         gate.Register(expectation, Now);
-        Assert.True(gate.HandleOffer(Signal(UUID.Random()), Now.AddSeconds(1)).Accept);
+        Assert.True(gate.HandleOffer(Signal(), Now.AddSeconds(1)).Accept);
 
         var status = gate.Get(expectation.RequestId, Now.AddSeconds(6));
 
@@ -105,6 +107,20 @@ public sealed class ArtifactOfferGateTests
         Assert.True(error.OutcomeUnknown);
     }
 
+    [Fact]
+    public void ReceiptEventSuppliesTheTaskInventoryItemId()
+    {
+        var gate = Gate(out _);
+        var receivedItemId = UUID.Random();
+        var otherItemId = UUID.Random();
+
+        Assert.True(gate.HandleOffer(Signal(), Now.AddSeconds(1)).Accept);
+        Assert.False(gate.TryBeginReceipt(UUID.Zero, Now.AddSeconds(2)));
+        Assert.True(gate.TryBeginReceipt(receivedItemId, Now.AddSeconds(2)));
+        Assert.False(gate.TryBeginReceipt(otherItemId, Now.AddSeconds(2)));
+        Assert.True(gate.Complete(Item(receivedItemId), Bot, Now.AddSeconds(3)));
+    }
+
     [Theory]
     [InlineData("asset")]
     [InlineData("permissions")]
@@ -114,7 +130,8 @@ public sealed class ArtifactOfferGateTests
     {
         var gate = Gate(out var expectation);
         var itemId = UUID.Random();
-        gate.HandleOffer(Signal(itemId), Now.AddSeconds(1));
+        gate.HandleOffer(Signal(), Now.AddSeconds(1));
+        gate.TryBeginReceipt(itemId, Now.AddSeconds(2));
         var item = Item(itemId);
         if (mismatch == "asset") item.AssetUUID = UUID.Random();
         if (mismatch == "owner") item.OwnerID = UUID.Random();
@@ -158,8 +175,8 @@ public sealed class ArtifactOfferGateTests
     private static ArtifactOfferExpectation Expectation() => new(
         Guid.NewGuid(), SourceObject, SourceOwner, "Community Drop Box", "Scanner HUD", Asset, Masks);
 
-    private static ArtifactOfferSignal Signal(UUID itemId) => new(
-        true, SourceOwner, "Community Drop Box", "Scanner HUD", AssetType.Object, itemId);
+    private static ArtifactOfferSignal Signal() => new(
+        true, SourceOwner, "Community Drop Box", "Scanner HUD", AssetType.Object);
 
     private static InventoryItem Item(UUID itemId) => new(InventoryType.Object, itemId)
     {

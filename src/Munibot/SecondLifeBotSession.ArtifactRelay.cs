@@ -59,8 +59,7 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
             offer.Offer.FromAgentID,
             offer.Offer.FromAgentName ?? string.Empty,
             ArtifactOfferProtocol.ReadInventoryName(offer.Offer.Message) ?? string.Empty,
-            offer.AssetType,
-            offer.Offer.IMSessionID);
+            offer.AssetType);
         var decision = _artifactOfferGate.HandleOffer(signal, DateTimeOffset.UtcNow);
         offer.Accept = decision.Accept;
         logger.LogInformation("Artifact task offer decision={Decision}", decision.Reason);
@@ -68,7 +67,8 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
 
     private async Task HandleArtifactItemReceivedAsync(TaskItemReceivedEventArgs received)
     {
-        if (!_artifactOfferGate.Expects(received.ItemID, DateTimeOffset.UtcNow)) return;
+        if (!_artifactOfferGate.TryBeginReceipt(received.ItemID, DateTimeOffset.UtcNow)) return;
+        logger.LogInformation("Artifact task receipt observed; verifying accepted item");
         try
         {
             using var deadline = new CancellationTokenSource(
@@ -79,7 +79,10 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                 var item = await _client.Inventory.FetchItemAsync(received.ItemID, _client.Self.AgentID,
                     deadline.Token) ?? throw new ArtifactRelayException("receipt_unconfirmed",
                         "The accepted inventory item could not be fetched.", true, true);
-                _artifactOfferGate.Complete(item, _client.Self.AgentID, DateTimeOffset.UtcNow);
+                if (_artifactOfferGate.Complete(item, _client.Self.AgentID, DateTimeOffset.UtcNow))
+                    logger.LogInformation("Artifact task receipt verified");
+                else
+                    logger.LogWarning("Artifact task receipt did not match the registered expectation");
             }
             finally { _inventoryLock.Release(); }
         }

@@ -55,31 +55,34 @@ internal sealed class ArtifactOfferGate(TimeSpan? lifetime = null)
             if (!offer.FromTask || offer.SourceOwnerId != expected.SourceOwnerId ||
                 !string.Equals(offer.SourceObjectName, expected.SourceObjectName, StringComparison.Ordinal) ||
                 !string.Equals(offer.InventoryName, expected.InventoryName, StringComparison.Ordinal) ||
-                offer.AssetType != AssetType.Object || offer.ReceivedItemId == UUID.Zero)
+                offer.AssetType != AssetType.Object)
                 return new(false, "mismatch");
             entry.Status = "receiving";
-            entry.ReceivedItemId = offer.ReceivedItemId;
             return new(true, "expected");
         }
     }
 
-    public bool Expects(UUID itemId, DateTimeOffset now)
+    public bool TryBeginReceipt(UUID itemId, DateTimeOffset now)
     {
         lock (sync)
         {
             ExpireActive(now);
-            return activeRequestId is not null && entries.TryGetValue(activeRequestId.Value, out var entry) &&
-                entry.Status == "receiving" && entry.ReceivedItemId == itemId;
+            if (itemId == UUID.Zero || activeRequestId is null ||
+                !entries.TryGetValue(activeRequestId.Value, out var entry) || entry.Status != "receiving")
+                return false;
+            if (entry.ReceivedItemId != UUID.Zero && entry.ReceivedItemId != itemId) return false;
+            entry.ReceivedItemId = itemId;
+            return true;
         }
     }
 
-    public void Complete(InventoryItem item, UUID botId, DateTimeOffset now)
+    public bool Complete(InventoryItem item, UUID botId, DateTimeOffset now)
     {
         lock (sync)
         {
             ExpireActive(now);
             if (activeRequestId is null || !entries.TryGetValue(activeRequestId.Value, out var entry) ||
-                entry.Status != "receiving" || entry.ReceivedItemId != item.UUID) return;
+                entry.Status != "receiving" || entry.ReceivedItemId != item.UUID) return false;
             var expected = entry.Expectation;
             var mismatch = item.AssetType != AssetType.Object || item.InventoryType != InventoryType.Object ||
                 item.OwnerID != botId || item.AssetUUID != expected.AssetId || item.Name != expected.InventoryName ||
@@ -88,13 +91,14 @@ internal sealed class ArtifactOfferGate(TimeSpan? lifetime = null)
             {
                 Fail(entry, "receipt_mismatch",
                     "The received inventory item did not match the expected identity and permissions.", false, false);
-                return;
+                return false;
             }
             entry.Status = "received";
             entry.Receipt = new ArtifactOfferReceiptDto(
                 expected.RequestId.ToString(), expected.SourceObjectId.ToString(), now,
                 ArtifactInventoryItemDto.From(item));
             activeRequestId = null;
+            return true;
         }
     }
 
