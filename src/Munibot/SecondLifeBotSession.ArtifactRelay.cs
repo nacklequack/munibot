@@ -40,15 +40,15 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                 if (!MatchesReceipt(source, receipt.Item))
                     throw new ArtifactRelayException("source_changed",
                         "The bot inventory item no longer matches its verified receipt.");
-                var result = await ((GridTaskInventoryTarget)target).RelayArtifactAsync(source, spec, token);
+                var result = await ((GridTaskInventoryTarget)target).RelayArtifactAsync(source, spec, parsed, token);
                 logger.LogInformation(
                     "Artifact target receipt verified; requestId={RequestId} itemId={ItemId} outcome={Outcome} assetTransition={AssetTransition} marker=verified",
-                    parsed, source.UUID,
+                    parsed, result.Source.UUID,
                     result.Idempotent ? "idempotent" : "copied",
-                    source.AssetUUID == UUID.Zero ? "resolved" :
-                    result.Target.AssetUUID == source.AssetUUID ? "preserved" : "rekeyed");
+                    result.Source.AssetUUID == UUID.Zero ? "unavailable" :
+                    result.Target.AssetUUID == result.Source.AssetUUID ? "preserved" : "rekeyed");
                 return new ArtifactRelayResultDto(parsed.ToString(), spec.TargetObjectId.ToString(), spec.ExpectedBundleKey,
-                    result.Copied, result.Idempotent, ArtifactInventoryItemDto.From(source),
+                    result.Copied, result.Idempotent, ArtifactInventoryItemDto.From(result.Source),
                     ArtifactInventoryItemDto.From(result.Target));
             }, ct, suppressSensitiveDiagnostics: true);
         }
@@ -122,13 +122,13 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
         }
     }
 
-    private static bool MatchesReceipt(InventoryItem item, ArtifactInventoryItemDto receipt) =>
+    internal static bool MatchesReceipt(InventoryItem item, ArtifactInventoryItemDto receipt) =>
         item.UUID.ToString() == receipt.ItemId &&
         (receipt.AssetId == UUID.Zero.ToString() || item.AssetUUID.ToString() == receipt.AssetId) &&
         item.Name == receipt.Name && item.AssetType.ToString() == receipt.AssetType &&
         item.InventoryType.ToString() == receipt.InventoryType && item.OwnerID.ToString() == receipt.OwnerId &&
         item.GroupID.ToString() == receipt.GroupId && item.GroupOwned == receipt.GroupOwned &&
-        receipt.Permissions.Matches(item.Permissions);
+        receipt.Permissions.MatchesPreparedArtifactSource(item.Permissions);
 }
 
 internal static class ArtifactOfferProtocol
@@ -142,4 +142,8 @@ internal static class ArtifactOfferProtocol
     }
 }
 
-internal sealed record ArtifactTargetRelayResult(bool Copied, bool Idempotent, InventoryItem Target);
+internal sealed record ArtifactTargetRelayResult(
+    bool Copied,
+    bool Idempotent,
+    InventoryItem Source,
+    InventoryItem Target);

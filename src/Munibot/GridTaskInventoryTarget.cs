@@ -3,7 +3,11 @@ using OpenMetaverse.StructuredData;
 
 namespace Munibot;
 
-internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simulator, Primitive primitive) : ITaskInventoryTarget
+internal sealed class GridTaskInventoryTarget(
+    GridClient client,
+    Simulator simulator,
+    Primitive primitive,
+    ILogger logger) : ITaskInventoryTarget
 {
     private readonly TaskInventoryExperience experiences = new(
         name => simulator.Caps?.CapabilityURI(name),
@@ -150,7 +154,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
     }
 
     public async Task<ArtifactTargetRelayResult> RelayArtifactAsync(InventoryItem source,
-        ArtifactRelaySpec spec, CancellationToken ct)
+        ArtifactRelaySpec spec, Guid requestId, CancellationToken ct)
     {
         EnsureSimulator();
         VerifyArtifactSource(source);
@@ -165,7 +169,24 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         {
             throw new ArtifactRelayException("target_permission_denied", ex.Message, ex.Retryable, ex.OutcomeUnknown);
         }
+        if (sourceGroup != UUID.Zero)
+        {
+            var sourceNeedsSharing =
+                (source.Permissions.GroupMask & TaskInventorySharing.SharedSourceMask) !=
+                TaskInventorySharing.SharedSourceMask;
+            if (sourceNeedsSharing && !client.AisClient.IsAvailable)
+                throw new ArtifactRelayException("capability_unavailable",
+                    "Verified received-artifact sharing requires the inventory API.", true);
+            source = await new ArtifactSourceSharing(
+                    (id, changes, token) => client.AisClient.UpdateItemAsync(id, changes, token),
+                    (id, owner, token) => client.Inventory.FetchItemAsync(id, owner, token))
+                .PrepareAsync(source, client.Self.AgentID, sourceGroup, ct);
+        }
         VerifySourceSharing(source, sourceGroup);
+        logger.LogInformation(
+            "Artifact source sharing verified; requestId={RequestId} sharing={Sharing} assetIdentity={AssetIdentity} targetMutation=not-started",
+            requestId, sourceGroup == UUID.Zero ? "not-required" : "active-group",
+            source.AssetUUID == UUID.Zero ? "opaque" : "visible");
 
         var before = await ReadInventoryAsync(ct);
         VerifyBundle(before, spec.BundleMarkers);
@@ -173,7 +194,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         if (prior is not null)
         {
             VerifyDelivered(prior, source, spec.DeliveryMarker, spec.ExpectedTargetPermissions, false);
-            return new(false, true, prior);
+            return new(false, true, source, prior);
         }
 
         var delivery = PrepareDelivery(source, spec.DeliveryMarker, spec.ExpectedTargetPermissions);
@@ -187,7 +208,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                 if (current is not null)
                 {
                     VerifyDelivered(current, source, spec.DeliveryMarker, spec.ExpectedTargetPermissions, true);
-                    return new(true, false, current);
+                    return new(true, false, source, current);
                 }
                 await Task.Delay(250, ct);
             }
