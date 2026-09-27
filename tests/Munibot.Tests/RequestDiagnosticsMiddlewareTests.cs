@@ -8,8 +8,11 @@ namespace Munibot.Tests;
 
 public sealed class RequestDiagnosticsMiddlewareTests
 {
-    [Fact]
-    public async Task InvokeAsync_PreservesRequestBodyForDownstreamHandler()
+    [Theory]
+    [InlineData("POST", "/api/test")]
+    [InlineData("GET", "/api/bot/location")]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members")]
+    public async Task InvokeAsync_PreservesRequestBodyForDownstreamHandler(string method, string path)
     {
         var config = new BotConfig
         {
@@ -32,8 +35,8 @@ public sealed class RequestDiagnosticsMiddlewareTests
             NullLogger<RequestDiagnosticsMiddleware>.Instance);
 
         var httpContext = new DefaultHttpContext();
-        httpContext.Request.Method = "POST";
-        httpContext.Request.Path = "/api/test";
+        httpContext.Request.Method = method;
+        httpContext.Request.Path = path;
         httpContext.Request.ContentType = "application/json";
         httpContext.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes("{\"password\":\"secret\",\"ok\":true}"));
         httpContext.Request.ContentLength = httpContext.Request.Body.Length;
@@ -127,8 +130,57 @@ public sealed class RequestDiagnosticsMiddlewareTests
         Assert.Empty(logger.Messages);
     }
 
-    [Fact]
-    public async Task InvokeAsync_WhenDownstreamThrows_LogsOnlyFailure()
+    [Theory]
+    [InlineData("GET", "/api/bot/location", 200, LogLevel.Debug)]
+    [InlineData("GET", "/API/BOT/LOCATION/", 200, LogLevel.Debug)]
+    [InlineData("GET", "/api/bot/location", 204, LogLevel.Debug)]
+    [InlineData("GET", "/api/bot/location", 302, LogLevel.Information)]
+    [InlineData("GET", "/api/bot/location", 401, LogLevel.Information)]
+    [InlineData("GET", "/api/bot/location", 403, LogLevel.Information)]
+    [InlineData("GET", "/api/bot/location", 500, LogLevel.Information)]
+    [InlineData("POST", "/api/bot/location", 200, LogLevel.Information)]
+    [InlineData("GET", "/api/bot/location/other", 200, LogLevel.Information)]
+    [InlineData("GET", "/api/test", 200, LogLevel.Information)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 200, LogLevel.Debug)]
+    [InlineData("GET", "/API/GROUPS/5f078a80-bd67-ea50-7e68-384691c208c8/MEMBERS/", 200, LogLevel.Debug)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 401, LogLevel.Information)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 403, LogLevel.Information)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 504, LogLevel.Information)]
+    [InlineData("POST", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 200, LogLevel.Information)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/roles", 200, LogLevel.Information)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members/other", 200, LogLevel.Information)]
+    [InlineData("GET", "/api/groups//members", 200, LogLevel.Information)]
+    public async Task InvokeAsync_OnlySuccessfulPollingRequestsLogAtDebug(
+        string method, string path, int statusCode, LogLevel expectedLevel)
+    {
+        var logger = new CapturingLogger<RequestDiagnosticsMiddleware>();
+        var middleware = new RequestDiagnosticsMiddleware(
+            context =>
+            {
+                context.Response.StatusCode = statusCode;
+                return context.Response.WriteAsync("response");
+            },
+            new BotConfig(),
+            logger);
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Method = method;
+        httpContext.Request.Path = path;
+        httpContext.Response.Body = new MemoryStream();
+
+        await middleware.InvokeAsync(httpContext);
+
+        Assert.Equal(expectedLevel, Assert.Single(logger.Levels));
+        Assert.Contains($"status={statusCode}", Assert.Single(logger.Messages));
+        httpContext.Response.Body.Position = 0;
+        using var reader = new StreamReader(httpContext.Response.Body);
+        Assert.Equal("response", await reader.ReadToEndAsync());
+    }
+
+    [Theory]
+    [InlineData("/api/test")]
+    [InlineData("/api/bot/location")]
+    [InlineData("/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members")]
+    public async Task InvokeAsync_WhenDownstreamThrows_LogsOnlyFailure(string path)
     {
         var config = new BotConfig
         {
@@ -146,12 +198,13 @@ public sealed class RequestDiagnosticsMiddlewareTests
 
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Method = "GET";
-        httpContext.Request.Path = "/api/test";
+        httpContext.Request.Path = path;
         httpContext.Response.Body = new MemoryStream();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => middleware.InvokeAsync(httpContext));
 
         var message = Assert.Single(logger.Messages);
+        Assert.Equal(LogLevel.Error, Assert.Single(logger.Levels));
         Assert.Contains("failed status=500", message);
         Assert.DoesNotContain(" status=200 ", message);
     }
@@ -159,6 +212,7 @@ public sealed class RequestDiagnosticsMiddlewareTests
     private sealed class CapturingLogger<T> : ILogger<T>
     {
         public List<string> Messages { get; } = [];
+        public List<LogLevel> Levels { get; } = [];
 
         public IDisposable? BeginScope<TState>(TState state)
             where TState : notnull
@@ -174,6 +228,7 @@ public sealed class RequestDiagnosticsMiddlewareTests
             Func<TState, Exception?, string> formatter)
         {
             Messages.Add(formatter(state, exception));
+            Levels.Add(logLevel);
         }
     }
 }

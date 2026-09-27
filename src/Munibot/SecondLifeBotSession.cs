@@ -214,7 +214,7 @@ public sealed partial class SecondLifeBotSession(
                     .Select(member => ToMemberDto(member.Key, member.Value))
                     .ToList();
 
-                logger.LogInformation(
+                logger.LogDebug(
                     "Fetched group roster for {GroupUuid}: requestId={RequestId} members={MemberCount}",
                     groupId,
                     requestId,
@@ -837,13 +837,14 @@ public sealed partial class SecondLifeBotSession(
             var simulator = _client.Network.CurrentSim
                 ?? throw new InvalidOperationException("Current simulator is not available.");
             var primitive = FindPrimitive(simulator, objectId)
-                ?? throw new InvalidOperationException($"Object {objectId} is not currently visible to the bot in simulator {simulator.Name}.");
+                ?? throw new ObjectInteractionRejectedException(objectId, $"Object {objectId} is not currently visible to the bot in simulator {simulator.Name}.");
             var origin = _client.Self.SimPosition;
             var distance = Vector3.Distance(origin, primitive.Position);
 
             if (maxDistanceMeters.HasValue && distance > maxDistanceMeters.Value)
             {
-                throw new InvalidOperationException(
+                throw new ObjectInteractionRejectedException(
+                    objectId,
                     $"Object {objectId} is {distance:F2}m from the bot; maximum allowed distance is {maxDistanceMeters.Value:F2}m.");
             }
 
@@ -2535,6 +2536,16 @@ public sealed partial class SecondLifeBotSession(
                 result.ObjectId,
                 result.Distance);
         }
+        catch (ObjectInteractionRejectedException ex)
+        {
+            logger.LogWarning(
+                "Rejected LSL sit command from {EventName} source={SourceId} sourceName={SourceName} object={ObjectId}: {Reason}",
+                eventName,
+                GetEventSourceId(eventArgs) ?? "unknown",
+                GetEventSourceName(eventArgs) ?? "unknown",
+                ex.ObjectId,
+                ex.Message);
+        }
         catch (Exception ex)
         {
             logger.LogWarning(
@@ -2544,6 +2555,12 @@ public sealed partial class SecondLifeBotSession(
                 GetEventSourceId(eventArgs) ?? "unknown",
                 GetEventSourceName(eventArgs) ?? "unknown");
         }
+    }
+
+    private sealed class ObjectInteractionRejectedException(UUID objectId, string message)
+        : InvalidOperationException(message)
+    {
+        public UUID ObjectId { get; } = objectId;
     }
 
     private static string? GetEventSourceId(object eventArgs)
