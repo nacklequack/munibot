@@ -29,6 +29,20 @@ public sealed class ArtifactTargetVerificationTests
     }
 
     [Fact]
+    public void AcceptsVerifiedObjectInventoryIdentityWhenAssetIdentityIsHidden()
+    {
+        var source = Source();
+        source.AssetUUID = UUID.Zero;
+
+        GridTaskInventoryTarget.VerifyArtifactSource(source);
+        var delivery = GridTaskInventoryTarget.PrepareDelivery(source, DeliveryMarker, TargetMasks);
+
+        Assert.Equal(source.UUID, delivery.UUID);
+        Assert.Equal(UUID.Zero, delivery.AssetUUID);
+        Assert.Equal(DeliveryMarker, delivery.Description);
+    }
+
+    [Fact]
     public void KeepsBotTransferPermissionUntilCopyOnlyOwnershipTransition()
     {
         var source = Source();

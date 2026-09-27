@@ -44,6 +44,7 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                 logger.LogInformation(
                     "Artifact target receipt verified; outcome={Outcome} assetTransition={AssetTransition} marker=verified",
                     result.Idempotent ? "idempotent" : "copied",
+                    source.AssetUUID == UUID.Zero ? "resolved" :
                     result.Target.AssetUUID == source.AssetUUID ? "preserved" : "rekeyed");
                 return new ArtifactRelayResultDto(parsed.ToString(), spec.TargetObjectId.ToString(), spec.ExpectedBundleKey,
                     result.Copied, result.Idempotent, ArtifactInventoryItemDto.From(source),
