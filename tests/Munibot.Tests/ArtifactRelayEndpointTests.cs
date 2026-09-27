@@ -43,6 +43,7 @@ public sealed class ArtifactRelayEndpointTests
         var masks = new InventoryPermissionMasksDto(1, 2, 3, 4, 5);
         var request = new ArtifactRelayRequestDto("Briarmont", new Vector3Dto(128, 128, 25),
             "HUD Scanner", Guid.NewGuid().ToString(), Guid.Empty.ToString(), "hud-runtime-scanner",
+            "munibase-artifact:11111111111141118111111111111111",
             [new("managed-runtime", Guid.NewGuid().ToString(), "LSLText")], masks);
 
         using var response = await client.PutAsJsonAsync(
@@ -119,7 +120,7 @@ public sealed class ArtifactRelayEndpointTests
         {
             Relays++;
             var item = new ArtifactInventoryItemDto(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(),
-                "Scanner HUD", "Object", "Object", Guid.NewGuid().ToString(), Guid.Empty.ToString(), false,
+                "Scanner HUD", request.DeliveryMarker, "Object", "Object", Guid.NewGuid().ToString(), Guid.Empty.ToString(), false,
                 request.ExpectedTargetPermissions, true, true, true);
             return Task.FromResult(new ArtifactRelayResultDto(requestId, objectUuid,
                 request.ExpectedBundleKey, true, false, item, item));

@@ -27,7 +27,7 @@ public sealed class ArtifactOfferGateTests
         Assert.True(decision.Accept);
         Assert.Equal("receiving", gate.Get(expectation.RequestId, Now.AddSeconds(1)).Status);
         Assert.True(gate.TryBeginReceipt(itemId, Now.AddSeconds(2)));
-        gate.Complete(Item(itemId), Bot, Now.AddSeconds(2), out _);
+        gate.Complete(Item(itemId), Bot, Now.AddSeconds(2), out _, out _);
         var status = gate.Get(expectation.RequestId, Now.AddSeconds(2));
         Assert.Equal("received", status.Status);
         Assert.Equal(itemId.ToString(), status.Receipt!.Item.ItemId);
@@ -83,7 +83,7 @@ public sealed class ArtifactOfferGateTests
         Assert.True(gate.HandleOffer(Signal(), Now.AddSeconds(1)).Accept);
         Assert.False(gate.HandleOffer(Signal(), Now.AddSeconds(2)).Accept);
         Assert.True(gate.TryBeginReceipt(itemId, Now.AddSeconds(3)));
-        gate.Complete(Item(itemId), Bot, Now.AddSeconds(3), out _);
+        gate.Complete(Item(itemId), Bot, Now.AddSeconds(3), out _, out _);
         Assert.False(gate.HandleOffer(Signal(), Now.AddSeconds(4)).Accept);
     }
 
@@ -118,11 +118,11 @@ public sealed class ArtifactOfferGateTests
         Assert.False(gate.TryBeginReceipt(UUID.Zero, Now.AddSeconds(2)));
         Assert.True(gate.TryBeginReceipt(receivedItemId, Now.AddSeconds(2)));
         Assert.False(gate.TryBeginReceipt(otherItemId, Now.AddSeconds(2)));
-        Assert.True(gate.Complete(Item(receivedItemId), Bot, Now.AddSeconds(3), out _));
+        Assert.True(gate.Complete(Item(receivedItemId), Bot, Now.AddSeconds(3), out _, out _));
     }
 
     [Theory]
-    [InlineData("asset")]
+    [InlineData("missing-asset")]
     [InlineData("permissions")]
     [InlineData("owner")]
     [InlineData("name")]
@@ -133,12 +133,12 @@ public sealed class ArtifactOfferGateTests
         gate.HandleOffer(Signal(), Now.AddSeconds(1));
         gate.TryBeginReceipt(itemId, Now.AddSeconds(2));
         var item = Item(itemId);
-        if (mismatch == "asset") item.AssetUUID = UUID.Random();
+        if (mismatch == "missing-asset") item.AssetUUID = UUID.Zero;
         if (mismatch == "owner") item.OwnerID = UUID.Random();
         if (mismatch == "name") item.Name = "Other Artifact";
         if (mismatch == "permissions") item.Permissions = new Permissions(0, 0, 0, 0, 0);
 
-        gate.Complete(item, Bot, Now.AddSeconds(2), out var mismatchSummary);
+        gate.Complete(item, Bot, Now.AddSeconds(2), out var mismatchSummary, out _);
 
         var status = gate.Get(expectation.RequestId, Now.AddSeconds(2));
         Assert.Equal("failed", status.Status);
@@ -146,6 +146,25 @@ public sealed class ArtifactOfferGateTests
         Assert.False(string.IsNullOrWhiteSpace(mismatchSummary));
         Assert.Contains(mismatchSummary!, status.Error);
         Assert.Null(status.Receipt);
+    }
+
+    [Fact]
+    public void OwnershipTransferMayRekeyTheAssetWhilePreservingReceiptBinding()
+    {
+        var gate = Gate(out var expectation);
+        var itemId = UUID.Random();
+        gate.HandleOffer(Signal(), Now.AddSeconds(1));
+        gate.TryBeginReceipt(itemId, Now.AddSeconds(2));
+        var item = Item(itemId);
+        item.AssetUUID = UUID.Random();
+
+        Assert.True(gate.Complete(item, Bot, Now.AddSeconds(3), out var mismatchSummary,
+            out var assetRekeyed));
+
+        Assert.Null(mismatchSummary);
+        Assert.True(assetRekeyed);
+        Assert.Equal(item.AssetUUID.ToString(),
+            gate.Get(expectation.RequestId, Now.AddSeconds(3)).Receipt!.Item.AssetId);
     }
 
     [Fact]
@@ -163,7 +182,7 @@ public sealed class ArtifactOfferGateTests
             Masks.NextOwner,
             Masks.NextOwner);
 
-        Assert.True(gate.Complete(item, Bot, Now.AddSeconds(3), out var mismatchSummary));
+        Assert.True(gate.Complete(item, Bot, Now.AddSeconds(3), out var mismatchSummary, out _));
         Assert.Null(mismatchSummary);
         Assert.Equal("received", gate.Get(expectation.RequestId, Now.AddSeconds(3)).Status);
     }
@@ -179,7 +198,7 @@ public sealed class ArtifactOfferGateTests
         var missingTransfer = Masks.NextOwner & ~(uint)PermissionMask.Transfer;
         item.Permissions = new Permissions(Masks.Base, 0, 0, missingTransfer, Masks.NextOwner);
 
-        Assert.False(gate.Complete(item, Bot, Now.AddSeconds(3), out var mismatchSummary));
+        Assert.False(gate.Complete(item, Bot, Now.AddSeconds(3), out var mismatchSummary, out _));
         Assert.Contains("owner permissions", mismatchSummary);
         Assert.Equal("receipt_mismatch", gate.Get(expectation.RequestId, Now.AddSeconds(3)).ErrorCode);
     }

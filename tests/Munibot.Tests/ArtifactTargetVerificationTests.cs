@@ -4,6 +4,7 @@ namespace Munibot.Tests;
 
 public sealed class ArtifactTargetVerificationTests
 {
+    private const string DeliveryMarker = "munibase-artifact:11111111111141118111111111111111";
     private static readonly UUID Bot = UUID.Random();
     private static readonly UUID Target = UUID.Random();
     private static readonly UUID Owner = UUID.Random();
@@ -34,11 +35,12 @@ public sealed class ArtifactTargetVerificationTests
         var original = source.Permissions;
 
         GridTaskInventoryTarget.VerifyTargetPermissionPolicy(source, TargetMasks);
-        var delivery = GridTaskInventoryTarget.PrepareDelivery(source, TargetMasks);
+        var delivery = GridTaskInventoryTarget.PrepareDelivery(source, DeliveryMarker, TargetMasks);
 
         Assert.Equal(TargetMasks, InventoryPermissionMasksDto.From(delivery.Permissions));
         Assert.Equal(InventoryPermissionMasksDto.From(original),
             InventoryPermissionMasksDto.From(source.Permissions));
+        Assert.Equal(DeliveryMarker, delivery.Description);
         Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Copy) != 0);
         Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Modify) == 0);
         Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Transfer) == 0);
@@ -85,25 +87,39 @@ public sealed class ArtifactTargetVerificationTests
     {
         var source = Source();
         var existing = Source(UUID.Random());
+        existing.Description = DeliveryMarker;
         existing.Permissions = Permissions(TargetMasks);
 
         var found = GridTaskInventoryTarget.FindExactName([Marker("managed-runtime", AssetType.LSLText), existing], source.Name);
-        GridTaskInventoryTarget.VerifyDelivered(found!, source, TargetMasks, false);
+        GridTaskInventoryTarget.VerifyDelivered(found!, source, DeliveryMarker, TargetMasks, false);
 
         Assert.Same(existing, found);
     }
 
     [Fact]
-    public void ExistingWrongCopyFailsWithoutUnknownOutcome()
+    public void ExistingWrongMarkerFailsWithoutUnknownOutcome()
     {
         var source = Source();
         var existing = Source(UUID.Random());
-        existing.AssetUUID = UUID.Random();
+        existing.Description = "munibase-artifact:22222222222242228222222222222222";
         existing.Permissions = Permissions(TargetMasks);
         var error = Assert.Throws<ArtifactRelayException>(() =>
-            GridTaskInventoryTarget.VerifyDelivered(existing, source, TargetMasks, false));
+            GridTaskInventoryTarget.VerifyDelivered(existing, source, DeliveryMarker, TargetMasks, false));
         Assert.Equal("target_receipt_mismatch", error.Code);
+        Assert.Contains("delivery marker", error.Message);
         Assert.False(error.OutcomeUnknown);
+    }
+
+    [Fact]
+    public void DestinationMayRekeyTheAssetWhenMarkerAndPermissionsMatch()
+    {
+        var source = Source();
+        var delivered = Source(UUID.Random());
+        delivered.AssetUUID = UUID.Random();
+        delivered.Description = DeliveryMarker;
+        delivered.Permissions = Permissions(TargetMasks);
+
+        GridTaskInventoryTarget.VerifyDelivered(delivered, source, DeliveryMarker, TargetMasks, true);
     }
 
     [Fact]
@@ -111,9 +127,10 @@ public sealed class ArtifactTargetVerificationTests
     {
         var source = Source();
         var copied = Source(UUID.Random());
+        copied.Description = DeliveryMarker;
         copied.Permissions = new Permissions(0, 0, 0, 0, 0);
         var error = Assert.Throws<ArtifactRelayException>(() =>
-            GridTaskInventoryTarget.VerifyDelivered(copied, source, TargetMasks, true));
+            GridTaskInventoryTarget.VerifyDelivered(copied, source, DeliveryMarker, TargetMasks, true));
         Assert.Equal("target_receipt_mismatch", error.Code);
         Assert.True(error.OutcomeUnknown);
     }
@@ -128,7 +145,7 @@ public sealed class ArtifactTargetVerificationTests
     }
 
     private static ArtifactRelaySpec Spec() => new(Target, "Briarmont", new Vector3(128, 128, 25),
-        "HUD Scanner", Owner, Group, "hud-runtime-scanner",
+        "HUD Scanner", Owner, Group, "hud-runtime-scanner", DeliveryMarker,
         [new ArtifactBundleMarkerSpec("managed-runtime", UUID.Random(), AssetType.LSLText)], TargetMasks);
 
     private static Primitive.ObjectProperties Properties() => new()

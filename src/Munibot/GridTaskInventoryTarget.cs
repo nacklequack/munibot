@@ -172,11 +172,11 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         var prior = FindExactName(before, source.Name);
         if (prior is not null)
         {
-            VerifyDelivered(prior, source, spec.ExpectedTargetPermissions, false);
+            VerifyDelivered(prior, source, spec.DeliveryMarker, spec.ExpectedTargetPermissions, false);
             return new(false, true, prior);
         }
 
-        var delivery = PrepareDelivery(source, spec.ExpectedTargetPermissions);
+        var delivery = PrepareDelivery(source, spec.DeliveryMarker, spec.ExpectedTargetPermissions);
         delivery.GroupID = sourceGroup;
         client.Inventory.UpdateTaskInventory(primitive.LocalID, delivery, simulator);
         try
@@ -186,7 +186,7 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
                 var current = FindExactName(await ReadInventoryAsync(ct), source.Name);
                 if (current is not null)
                 {
-                    VerifyDelivered(current, source, spec.ExpectedTargetPermissions, true);
+                    VerifyDelivered(current, source, spec.DeliveryMarker, spec.ExpectedTargetPermissions, true);
                     return new(true, false, current);
                 }
                 await Task.Delay(250, ct);
@@ -350,37 +350,43 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         return matches.SingleOrDefault();
     }
 
-    internal static void VerifyDelivered(InventoryItem target, InventoryItem source,
+    internal static void VerifyDelivered(InventoryItem target, InventoryItem source, string deliveryMarker,
         InventoryPermissionMasksDto expectedPermissions, bool outcomeUnknown)
     {
-        if (target.Name != source.Name || target.AssetType != AssetType.Object ||
-            target.InventoryType != InventoryType.Object || target.AssetUUID != source.AssetUUID ||
-            !expectedPermissions.Matches(target.Permissions))
+        var mismatches = new List<string>();
+        if (target.Name != source.Name) mismatches.Add("inventory name");
+        if (target.Description != deliveryMarker) mismatches.Add("delivery marker");
+        if (target.AssetType != AssetType.Object) mismatches.Add("asset type");
+        if (target.InventoryType != InventoryType.Object) mismatches.Add("inventory type");
+        if (target.AssetUUID == UUID.Zero) mismatches.Add("asset identity");
+        if (!expectedPermissions.Matches(target.Permissions)) mismatches.Add("permissions");
+        if (mismatches.Count != 0)
             throw new ArtifactRelayException("target_receipt_mismatch",
-                "The target object copy did not match the expected identity and permissions.", false, outcomeUnknown);
+                $"The target object copy did not match the expected {string.Join(", ", mismatches)}.",
+                false, outcomeUnknown);
     }
 
-    internal static InventoryItem PrepareDelivery(InventoryItem item,
+    internal static InventoryItem PrepareDelivery(InventoryItem item, string deliveryMarker,
         InventoryPermissionMasksDto targetPermissions) => new(item.InventoryType, item.UUID)
-    {
-        ParentUUID = item.ParentUUID,
-        Name = item.Name,
-        OwnerID = item.OwnerID,
-        AssetUUID = item.AssetUUID,
-        Permissions = new Permissions(targetPermissions.Base, targetPermissions.Everyone,
+        {
+            ParentUUID = item.ParentUUID,
+            Name = item.Name,
+            OwnerID = item.OwnerID,
+            AssetUUID = item.AssetUUID,
+            Permissions = new Permissions(targetPermissions.Base, targetPermissions.Everyone,
             targetPermissions.Group, targetPermissions.NextOwner, targetPermissions.Owner),
-        AssetType = item.AssetType,
-        CreatorID = item.CreatorID,
-        Description = item.Description,
-        GroupID = item.GroupID,
-        GroupOwned = item.GroupOwned,
-        SalePrice = item.SalePrice,
-        SaleType = item.SaleType,
-        Flags = item.Flags,
-        CreationDate = item.CreationDate,
-        TransactionID = item.TransactionID,
-        LastOwnerID = item.LastOwnerID
-    };
+            AssetType = item.AssetType,
+            CreatorID = item.CreatorID,
+            Description = deliveryMarker,
+            GroupID = item.GroupID,
+            GroupOwned = item.GroupOwned,
+            SalePrice = item.SalePrice,
+            SaleType = item.SaleType,
+            Flags = item.Flags,
+            CreationDate = item.CreationDate,
+            TransactionID = item.TransactionID,
+            LastOwnerID = item.LastOwnerID
+        };
 
     private static string Kind(AssetType assetType) => assetType switch
     {
