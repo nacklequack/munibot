@@ -42,8 +42,10 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                         "The bot inventory item no longer matches its verified receipt.");
                 var result = await ((GridTaskInventoryTarget)target).RelayArtifactAsync(source, spec, token);
                 logger.LogInformation(
-                    "Artifact target receipt verified; outcome={Outcome} assetTransition={AssetTransition} marker=verified",
+                    "Artifact target receipt verified; requestId={RequestId} itemId={ItemId} outcome={Outcome} assetTransition={AssetTransition} marker=verified",
+                    parsed, source.UUID,
                     result.Idempotent ? "idempotent" : "copied",
+                    source.AssetUUID == UUID.Zero ? "resolved" :
                     result.Target.AssetUUID == source.AssetUUID ? "preserved" : "rekeyed");
                 return new ArtifactRelayResultDto(parsed.ToString(), spec.TargetObjectId.ToString(), spec.ExpectedBundleKey,
                     result.Copied, result.Idempotent, ArtifactInventoryItemDto.From(source),
@@ -53,15 +55,15 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
         catch (ArtifactRelayException ex)
         {
             logger.LogWarning(
-                "Artifact relay failed; code={Code} retryable={Retryable} outcomeUnknown={OutcomeUnknown}",
-                ex.Code, ex.Retryable, ex.OutcomeUnknown);
+                "Artifact relay failed; requestId={RequestId} code={Code} retryable={Retryable} outcomeUnknown={OutcomeUnknown}",
+                parsed, ex.Code, ex.Retryable, ex.OutcomeUnknown);
             throw;
         }
         catch (TaskInventoryException ex)
         {
             logger.LogWarning(
-                "Artifact target operation failed; code={Code} retryable={Retryable} outcomeUnknown={OutcomeUnknown}",
-                ex.Code, ex.Retryable, ex.OutcomeUnknown);
+                "Artifact target operation failed; requestId={RequestId} code={Code} retryable={Retryable} outcomeUnknown={OutcomeUnknown}",
+                parsed, ex.Code, ex.Retryable, ex.OutcomeUnknown);
             throw new ArtifactRelayException(ex.Code, ex.Message, ex.Retryable, ex.OutcomeUnknown);
         }
     }
@@ -76,13 +78,17 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
             offer.AssetType);
         var decision = _artifactOfferGate.HandleOffer(signal, DateTimeOffset.UtcNow);
         offer.Accept = decision.Accept;
-        logger.LogInformation("Artifact task offer decision={Decision}", decision.Reason);
+        logger.LogInformation(
+            "Artifact task offer decision={Decision} requestId={RequestId} sourceObject={SourceObject} inventoryName={InventoryName}",
+            decision.Reason, decision.RequestId, signal.SourceObjectName, signal.InventoryName);
     }
 
     private async Task HandleArtifactItemReceivedAsync(TaskItemReceivedEventArgs received)
     {
-        if (!_artifactOfferGate.TryBeginReceipt(received.ItemID, DateTimeOffset.UtcNow)) return;
-        logger.LogInformation("Artifact task receipt observed; verifying accepted item");
+        if (!_artifactOfferGate.TryBeginReceipt(received.ItemID, DateTimeOffset.UtcNow, out var requestId)) return;
+        logger.LogInformation(
+            "Artifact task receipt observed; requestId={RequestId} itemId={ItemId} verifying accepted item",
+            requestId, received.ItemID);
         try
         {
             using var deadline = new CancellationTokenSource(
@@ -95,12 +101,14 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                         "The accepted inventory item could not be fetched.", true, true);
                 if (_artifactOfferGate.Complete(item, _client.Self.AgentID, DateTimeOffset.UtcNow,
                         out var mismatchSummary, out var assetRekeyed))
-                    logger.LogInformation("Artifact task receipt verified; assetTransition={AssetTransition}",
+                    logger.LogInformation(
+                        "Artifact task receipt verified; requestId={RequestId} itemId={ItemId} inventoryName={InventoryName} assetTransition={AssetTransition}",
+                        requestId, item.UUID, item.Name,
                         item.AssetUUID == UUID.Zero ? "unavailable" : assetRekeyed ? "rekeyed" : "preserved");
                 else
                     logger.LogWarning(
-                        "Artifact task receipt did not match the registered expectation; fields={Fields}",
-                        mismatchSummary ?? "receipt state");
+                        "Artifact task receipt did not match the registered expectation; requestId={RequestId} itemId={ItemId} fields={Fields}",
+                        requestId, received.ItemID, mismatchSummary ?? "receipt state");
             }
             finally { _inventoryLock.Release(); }
         }
@@ -108,8 +116,9 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
         {
             _artifactOfferGate.FailReceipt(received.ItemID, "receipt_unconfirmed",
                 "The accepted inventory item could not be verified.", true, DateTimeOffset.UtcNow);
-            logger.LogWarning("Accepted artifact receipt verification failed; errorType={ErrorType}",
-                ex.GetType().Name);
+            logger.LogWarning(
+                "Accepted artifact receipt verification failed; requestId={RequestId} itemId={ItemId} errorType={ErrorType}",
+                requestId, received.ItemID, ex.GetType().Name);
         }
     }
 
