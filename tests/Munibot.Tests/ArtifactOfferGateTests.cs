@@ -25,6 +25,7 @@ public sealed class ArtifactOfferGateTests
         var decision = gate.HandleOffer(Signal(), Now.AddSeconds(1));
 
         Assert.True(decision.Accept);
+        Assert.Equal(expectation.RequestId, decision.RequestId);
         Assert.Equal("receiving", gate.Get(expectation.RequestId, Now.AddSeconds(1)).Status);
         Assert.True(gate.TryBeginReceipt(itemId, Now.AddSeconds(2)));
         gate.Complete(Item(itemId), Bot, Now.AddSeconds(2), out _, out _);
@@ -110,13 +111,14 @@ public sealed class ArtifactOfferGateTests
     [Fact]
     public void ReceiptEventSuppliesTheTaskInventoryItemId()
     {
-        var gate = Gate(out _);
+        var gate = Gate(out var expectation);
         var receivedItemId = UUID.Random();
         var otherItemId = UUID.Random();
 
         Assert.True(gate.HandleOffer(Signal(), Now.AddSeconds(1)).Accept);
         Assert.False(gate.TryBeginReceipt(UUID.Zero, Now.AddSeconds(2)));
-        Assert.True(gate.TryBeginReceipt(receivedItemId, Now.AddSeconds(2)));
+        Assert.True(gate.TryBeginReceipt(receivedItemId, Now.AddSeconds(2), out var requestId));
+        Assert.Equal(expectation.RequestId, requestId);
         Assert.False(gate.TryBeginReceipt(otherItemId, Now.AddSeconds(2)));
         Assert.True(gate.Complete(Item(receivedItemId), Bot, Now.AddSeconds(3), out _, out _));
     }

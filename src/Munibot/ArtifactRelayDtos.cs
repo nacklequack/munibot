@@ -158,7 +158,7 @@ internal sealed record ArtifactOfferSignal(
     string InventoryName,
     AssetType AssetType);
 
-internal sealed record ArtifactOfferDecision(bool Accept, string Reason);
+internal sealed record ArtifactOfferDecision(bool Accept, string Reason, Guid? RequestId);
 
 internal sealed record ArtifactRelaySpec(
     UUID TargetObjectId,

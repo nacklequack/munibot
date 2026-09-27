@@ -49,21 +49,25 @@ internal sealed class ArtifactOfferGate(TimeSpan? lifetime = null)
         {
             ExpireActive(now);
             if (activeRequestId is null || !entries.TryGetValue(activeRequestId.Value, out var entry))
-                return new(false, "unsolicited");
-            if (entry.Status != "pending") return new(false, "duplicate");
+                return new(false, "unsolicited", null);
+            if (entry.Status != "pending") return new(false, "duplicate", entry.Expectation.RequestId);
             var expected = entry.Expectation;
             if (!offer.FromTask || offer.SourceOwnerId != expected.SourceOwnerId ||
                 !string.Equals(offer.SourceObjectName, expected.SourceObjectName, StringComparison.Ordinal) ||
                 !string.Equals(offer.InventoryName, expected.InventoryName, StringComparison.Ordinal) ||
                 offer.AssetType != AssetType.Object)
-                return new(false, "mismatch");
+                return new(false, "mismatch", expected.RequestId);
             entry.Status = "receiving";
-            return new(true, "expected");
+            return new(true, "expected", expected.RequestId);
         }
     }
 
-    public bool TryBeginReceipt(UUID itemId, DateTimeOffset now)
+    public bool TryBeginReceipt(UUID itemId, DateTimeOffset now) =>
+        TryBeginReceipt(itemId, now, out _);
+
+    public bool TryBeginReceipt(UUID itemId, DateTimeOffset now, out Guid requestId)
     {
+        requestId = Guid.Empty;
         lock (sync)
         {
             ExpireActive(now);
@@ -72,6 +76,7 @@ internal sealed class ArtifactOfferGate(TimeSpan? lifetime = null)
                 return false;
             if (entry.ReceivedItemId != UUID.Zero && entry.ReceivedItemId != itemId) return false;
             entry.ReceivedItemId = itemId;
+            requestId = entry.Expectation.RequestId;
             return true;
         }
     }
