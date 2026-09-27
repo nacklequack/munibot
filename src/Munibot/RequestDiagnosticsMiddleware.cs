@@ -70,7 +70,13 @@ public sealed class RequestDiagnosticsMiddleware(
 
             if (!failedByException)
             {
-                logger.LogInformation(
+                var logLevel = HttpMethods.IsGet(context.Request.Method) &&
+                               context.Request.Path.Value?.TrimEnd('/').Equals("/api/bot/location", StringComparison.OrdinalIgnoreCase) == true &&
+                               context.Response.StatusCode is >= 200 and < 300
+                    ? LogLevel.Debug
+                    : LogLevel.Information;
+                logger.Log(
+                    logLevel,
                     "API {Method} {Path} status={StatusCode} elapsedMs={ElapsedMs} requestId={RequestId} token={TokenId} requestBody={RequestBody} responseBody={ResponseBody}",
                     context.Request.Method,
                     context.Request.Path,
