@@ -122,7 +122,6 @@ public sealed class ArtifactOfferGateTests
     }
 
     [Theory]
-    [InlineData("missing-asset")]
     [InlineData("permissions")]
     [InlineData("owner")]
     [InlineData("name")]
@@ -133,7 +132,6 @@ public sealed class ArtifactOfferGateTests
         gate.HandleOffer(Signal(), Now.AddSeconds(1));
         gate.TryBeginReceipt(itemId, Now.AddSeconds(2));
         var item = Item(itemId);
-        if (mismatch == "missing-asset") item.AssetUUID = UUID.Zero;
         if (mismatch == "owner") item.OwnerID = UUID.Random();
         if (mismatch == "name") item.Name = "Other Artifact";
         if (mismatch == "permissions") item.Permissions = new Permissions(0, 0, 0, 0, 0);
@@ -146,6 +144,25 @@ public sealed class ArtifactOfferGateTests
         Assert.False(string.IsNullOrWhiteSpace(mismatchSummary));
         Assert.Contains(mismatchSummary!, status.Error);
         Assert.Null(status.Receipt);
+    }
+
+    [Fact]
+    public void AssetIdentityMayRemainUnavailableUntilTheAcceptedItemIsRead()
+    {
+        var gate = Gate(out var expectation);
+        var itemId = UUID.Random();
+        gate.HandleOffer(Signal(), Now.AddSeconds(1));
+        gate.TryBeginReceipt(itemId, Now.AddSeconds(2));
+        var item = Item(itemId);
+        item.AssetUUID = UUID.Zero;
+
+        Assert.True(gate.Complete(item, Bot, Now.AddSeconds(3), out var mismatchSummary,
+            out var assetRekeyed));
+
+        Assert.Null(mismatchSummary);
+        Assert.False(assetRekeyed);
+        Assert.Equal(UUID.Zero.ToString(),
+            gate.Get(expectation.RequestId, Now.AddSeconds(3)).Receipt!.Item.AssetId);
     }
 
     [Fact]

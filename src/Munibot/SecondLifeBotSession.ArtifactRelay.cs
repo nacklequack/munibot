@@ -86,7 +86,7 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                 if (_artifactOfferGate.Complete(item, _client.Self.AgentID, DateTimeOffset.UtcNow,
                         out var mismatchSummary, out var assetRekeyed))
                     logger.LogInformation("Artifact task receipt verified; assetTransition={AssetTransition}",
-                        assetRekeyed ? "rekeyed" : "preserved");
+                        item.AssetUUID == UUID.Zero ? "unavailable" : assetRekeyed ? "rekeyed" : "preserved");
                 else
                     logger.LogWarning(
                         "Artifact task receipt did not match the registered expectation; fields={Fields}",
@@ -104,7 +104,8 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
     }
 
     private static bool MatchesReceipt(InventoryItem item, ArtifactInventoryItemDto receipt) =>
-        item.UUID.ToString() == receipt.ItemId && item.AssetUUID.ToString() == receipt.AssetId &&
+        item.UUID.ToString() == receipt.ItemId &&
+        (receipt.AssetId == UUID.Zero.ToString() || item.AssetUUID.ToString() == receipt.AssetId) &&
         item.Name == receipt.Name && item.AssetType.ToString() == receipt.AssetType &&
         item.InventoryType.ToString() == receipt.InventoryType && item.OwnerID.ToString() == receipt.OwnerId &&
         item.GroupID.ToString() == receipt.GroupId && item.GroupOwned == receipt.GroupOwned &&

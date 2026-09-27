@@ -153,6 +153,16 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         ArtifactRelaySpec spec, CancellationToken ct)
     {
         EnsureSimulator();
+        if (source.AssetUUID == UUID.Zero)
+        {
+            try { source.AssetUUID = await agentSourceReader.ReadAssetIdAsync(source, ct); }
+            catch (TaskInventoryException ex)
+            {
+                throw new ArtifactRelayException(ex.Code,
+                    $"The accepted artifact asset identity could not be resolved before scanner delivery: {ex.Message}",
+                    ex.Retryable, ex.OutcomeUnknown);
+            }
+        }
         VerifyArtifactSource(source);
         VerifyTargetPermissionPolicy(source, spec.ExpectedTargetPermissions);
 
