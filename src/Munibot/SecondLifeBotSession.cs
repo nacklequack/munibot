@@ -214,7 +214,7 @@ public sealed partial class SecondLifeBotSession(
                     .Select(member => ToMemberDto(member.Key, member.Value))
                     .ToList();
 
-                logger.LogInformation(
+                logger.LogDebug(
                     "Fetched group roster for {GroupUuid}: requestId={RequestId} members={MemberCount}",
                     groupId,
                     requestId,

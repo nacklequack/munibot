@@ -71,7 +71,7 @@ public sealed class RequestDiagnosticsMiddleware(
             if (!failedByException)
             {
                 var logLevel = HttpMethods.IsGet(context.Request.Method) &&
-                               context.Request.Path.Value?.TrimEnd('/').Equals("/api/bot/location", StringComparison.OrdinalIgnoreCase) == true &&
+                               IsPollingPath(context.Request.Path) &&
                                context.Response.StatusCode is >= 200 and < 300
                     ? LogLevel.Debug
                     : LogLevel.Information;
@@ -130,6 +130,22 @@ public sealed class RequestDiagnosticsMiddleware(
            contentType.Contains("json", StringComparison.OrdinalIgnoreCase) ||
            contentType.Contains("text", StringComparison.OrdinalIgnoreCase) ||
            contentType.Contains("form", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPollingPath(PathString path)
+    {
+        var normalized = path.Value?.TrimEnd('/');
+        if (string.Equals(normalized, "/api/bot/location", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var segments = normalized?.Split('/');
+        return segments is { Length: 5 } &&
+               segments[1].Equals("api", StringComparison.OrdinalIgnoreCase) &&
+               segments[2].Equals("groups", StringComparison.OrdinalIgnoreCase) &&
+               segments[3].Length > 0 &&
+               segments[4].Equals("members", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool IsProbePath(PathString path)
         => path.Equals("/health", StringComparison.OrdinalIgnoreCase) ||

@@ -69,7 +69,7 @@ If no tokens are configured, API calls are allowed for local development only, e
 
 ## Diagnostics
 
-Munibot logs API calls and Second Life events to stdout. API body logging is disabled by default; when enabled, small JSON bodies are logged with token, password, payment, description, texture, and large payload fields redacted. Probe requests to `/health` and `/ready` are not logged at info level. Successful `GET /api/bot/location` polls are logged at Debug; set `diagnostics.log_level: Debug` to see them. Unsuccessful location requests retain normal API diagnostics.
+Munibot logs API calls and Second Life events to stdout. API body logging is disabled by default; when enabled, small JSON bodies are logged with token, password, payment, description, texture, and large payload fields redacted. Probe requests to `/health` and `/ready` are not logged at info level. Successful `GET /api/bot/location` and `GET /api/groups/<group-uuid>/members` polls, along with the session's "Fetched group roster" messages, are logged at Debug; set `diagnostics.log_level: Debug` to see them. Unsuccessful polling requests retain normal API diagnostics.
 
 After login, Munibot sends a lightweight Second Life `AgentUpdate` on `runtime.movement_keepalive_seconds` so the simulator circuit does not sit idle. The default is 20 seconds; set it to `0` only for debugging.
 

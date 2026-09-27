@@ -11,6 +11,7 @@ public sealed class RequestDiagnosticsMiddlewareTests
     [Theory]
     [InlineData("POST", "/api/test")]
     [InlineData("GET", "/api/bot/location")]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members")]
     public async Task InvokeAsync_PreservesRequestBodyForDownstreamHandler(string method, string path)
     {
         var config = new BotConfig
@@ -140,7 +141,16 @@ public sealed class RequestDiagnosticsMiddlewareTests
     [InlineData("POST", "/api/bot/location", 200, LogLevel.Information)]
     [InlineData("GET", "/api/bot/location/other", 200, LogLevel.Information)]
     [InlineData("GET", "/api/test", 200, LogLevel.Information)]
-    public async Task InvokeAsync_OnlySuccessfulLocationPollsLogAtDebug(
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 200, LogLevel.Debug)]
+    [InlineData("GET", "/API/GROUPS/5f078a80-bd67-ea50-7e68-384691c208c8/MEMBERS/", 200, LogLevel.Debug)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 401, LogLevel.Information)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 403, LogLevel.Information)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 504, LogLevel.Information)]
+    [InlineData("POST", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members", 200, LogLevel.Information)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/roles", 200, LogLevel.Information)]
+    [InlineData("GET", "/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members/other", 200, LogLevel.Information)]
+    [InlineData("GET", "/api/groups//members", 200, LogLevel.Information)]
+    public async Task InvokeAsync_OnlySuccessfulPollingRequestsLogAtDebug(
         string method, string path, int statusCode, LogLevel expectedLevel)
     {
         var logger = new CapturingLogger<RequestDiagnosticsMiddleware>();
@@ -169,6 +179,7 @@ public sealed class RequestDiagnosticsMiddlewareTests
     [Theory]
     [InlineData("/api/test")]
     [InlineData("/api/bot/location")]
+    [InlineData("/api/groups/5f078a80-bd67-ea50-7e68-384691c208c8/members")]
     public async Task InvokeAsync_WhenDownstreamThrows_LogsOnlyFailure(string path)
     {
         var config = new BotConfig
