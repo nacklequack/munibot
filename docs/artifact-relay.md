@@ -148,7 +148,13 @@ exact case-sensitive bundle marker name/type/asset ID.
 The bot receipt must still match the live source item. The source must be an object with
 modify, copy and transfer permissions, so Rosalind can retain the source, restrict the
 outgoing copy, and transfer it to the scanner. Another-owner managed targets must use the
-bot's active group and the source must already carry the required group-sharing mask.
+bot's active group. Because an ownership transfer can clear the received copy's group
+grants, Munibot patches only that exact receipt-bound item's group mask through the
+inventory API, re-fetches it, and verifies its item identity, ownership, types, name,
+description, and every unrelated permission mask before any scanner mutation. Object
+asset UUIDs may remain opaque; a visible UUID may not change. A same-request retry may
+match either the receipt's original group mask or exactly that mask plus the required
+sharing grants; every other receipt field remains immutable.
 
 The target permission contract is intentionally different from the source contract.
 Munibot changes the outgoing copy to Copy plus Second Life's Move bit and removes Modify

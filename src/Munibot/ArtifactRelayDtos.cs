@@ -21,6 +21,15 @@ public sealed record InventoryPermissionMasksDto(
 
     internal bool Matches(Permissions permissions) => this == From(permissions);
 
+    internal bool MatchesPreparedArtifactSource(Permissions permissions)
+    {
+        var prepared = From(permissions);
+        return prepared.Base == Base && prepared.Owner == Owner && prepared.Everyone == Everyone &&
+            prepared.NextOwner == NextOwner &&
+            (prepared.Group == Group ||
+             prepared.Group == (Group | (uint)TaskInventorySharing.SharedSourceMask));
+    }
+
     internal IReadOnlyList<string> TransferredReceiptMismatches(Permissions permissions)
     {
         var received = From(permissions);

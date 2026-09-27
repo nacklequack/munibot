@@ -223,6 +223,33 @@ public sealed class ArtifactOfferGateTests
     }
 
     [Fact]
+    public void ReceiptBindingAllowsOnlyTheSanctionedSourceSharingDeltaOnRetry()
+    {
+        var item = Item(UUID.Random());
+        item.Permissions = new Permissions(Masks.Base, 0, 0, Masks.NextOwner, Masks.NextOwner);
+        var receipt = ArtifactInventoryItemDto.From(item);
+
+        Assert.True(SecondLifeBotSession.MatchesReceipt(item, receipt));
+        item.Permissions.GroupMask |= TaskInventorySharing.SharedSourceMask;
+        Assert.True(SecondLifeBotSession.MatchesReceipt(item, receipt));
+
+        item.Permissions.EveryoneMask |= PermissionMask.Copy;
+        Assert.False(SecondLifeBotSession.MatchesReceipt(item, receipt));
+    }
+
+    [Fact]
+    public void ReceiptBindingStillRejectsAdditionalGroupPermission()
+    {
+        var item = Item(UUID.Random());
+        item.Permissions = new Permissions(Masks.Base, 0, 0, Masks.NextOwner, Masks.NextOwner);
+        var receipt = ArtifactInventoryItemDto.From(item);
+
+        item.Permissions.GroupMask |= TaskInventorySharing.SharedSourceMask | PermissionMask.Transfer;
+
+        Assert.False(SecondLifeBotSession.MatchesReceipt(item, receipt));
+    }
+
+    [Fact]
     public void SameRequestIsIdempotentButChangedContractConflicts()
     {
         var gate = Gate(out var expectation);

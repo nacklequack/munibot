@@ -96,7 +96,7 @@ public sealed partial class SecondLifeBotSession
                     throw new TaskInventoryException("attachment_unsupported", "Task inventory delivery supports rezzed objects only.");
                 if ((primitive.Flags & PrimFlags.ObjectModify) == 0)
                     throw new TaskInventoryException("permission_denied", "Munibot does not have modify permission on the target object.");
-                return await action(new GridTaskInventoryTarget(_client, simulator, primitive), token);
+                return await action(new GridTaskInventoryTarget(_client, simulator, primitive, logger), token);
             }
             finally { _inventoryLock.Release(); }
         }
