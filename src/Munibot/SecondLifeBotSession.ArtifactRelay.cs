@@ -50,8 +50,18 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                     ArtifactInventoryItemDto.From(result.Target));
             }, ct, suppressSensitiveDiagnostics: true);
         }
+        catch (ArtifactRelayException ex)
+        {
+            logger.LogWarning(
+                "Artifact relay failed; code={Code} retryable={Retryable} outcomeUnknown={OutcomeUnknown}",
+                ex.Code, ex.Retryable, ex.OutcomeUnknown);
+            throw;
+        }
         catch (TaskInventoryException ex)
         {
+            logger.LogWarning(
+                "Artifact target operation failed; code={Code} retryable={Retryable} outcomeUnknown={OutcomeUnknown}",
+                ex.Code, ex.Retryable, ex.OutcomeUnknown);
             throw new ArtifactRelayException(ex.Code, ex.Message, ex.Retryable, ex.OutcomeUnknown);
         }
     }

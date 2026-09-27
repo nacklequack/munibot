@@ -29,7 +29,7 @@ public sealed class ArtifactTargetVerificationTests
     }
 
     [Fact]
-    public void PreparesCopyOnlyDeliveryWithoutChangingBotSource()
+    public void KeepsBotTransferPermissionUntilCopyOnlyOwnershipTransition()
     {
         var source = Source();
         var original = source.Permissions;
@@ -37,13 +37,17 @@ public sealed class ArtifactTargetVerificationTests
         GridTaskInventoryTarget.VerifyTargetPermissionPolicy(source, TargetMasks);
         var delivery = GridTaskInventoryTarget.PrepareDelivery(source, DeliveryMarker, TargetMasks);
 
-        Assert.Equal(TargetMasks, InventoryPermissionMasksDto.From(delivery.Permissions));
         Assert.Equal(InventoryPermissionMasksDto.From(original),
             InventoryPermissionMasksDto.From(source.Permissions));
         Assert.Equal(DeliveryMarker, delivery.Description);
+        Assert.Equal(source.Permissions.OwnerMask, delivery.Permissions.OwnerMask);
+        Assert.Equal((PermissionMask)TargetMasks.Owner, delivery.Permissions.NextOwnerMask);
         Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Copy) != 0);
-        Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Modify) == 0);
-        Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Transfer) == 0);
+        Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Modify) != 0);
+        Assert.True((delivery.Permissions.OwnerMask & PermissionMask.Transfer) != 0);
+        Assert.True((delivery.Permissions.NextOwnerMask & PermissionMask.Copy) != 0);
+        Assert.True((delivery.Permissions.NextOwnerMask & PermissionMask.Modify) == 0);
+        Assert.True((delivery.Permissions.NextOwnerMask & PermissionMask.Transfer) == 0);
     }
 
     [Theory]

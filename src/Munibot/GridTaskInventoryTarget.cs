@@ -210,8 +210,9 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
         {
             throw new ArtifactRelayException(ex.Code, ex.Message, ex.Retryable, true);
         }
-        throw new ArtifactRelayException("copy_unconfirmed",
-            "The exact object copy was not confirmed in target inventory. Inspect before retrying.", true, true);
+        throw new ArtifactRelayException("target_write_unconfirmed",
+            "The scanner did not report the exact object copy after the target write. Inspect its inventory before retrying.",
+            true, true);
     }
 
     private Task<Primitive.ObjectProperties> ReadPropertiesAsync(CancellationToken ct) =>
@@ -383,8 +384,11 @@ internal sealed class GridTaskInventoryTarget(GridClient client, Simulator simul
             Name = item.Name,
             OwnerID = item.OwnerID,
             AssetUUID = item.AssetUUID,
+            // The source must remain transferable while Rosalind owns and inserts it. Second Life
+            // applies NextOwnerMask when ownership changes to the scanner owner, producing the
+            // requested copy-only task-inventory item after the transfer.
             Permissions = new Permissions(targetPermissions.Base, targetPermissions.Everyone,
-            targetPermissions.Group, targetPermissions.NextOwner, targetPermissions.Owner),
+            targetPermissions.Group, targetPermissions.Owner, (uint)item.Permissions.OwnerMask),
             AssetType = item.AssetType,
             CreatorID = item.CreatorID,
             Description = deliveryMarker,
