@@ -41,6 +41,10 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                     throw new ArtifactRelayException("source_changed",
                         "The bot inventory item no longer matches its verified receipt.");
                 var result = await ((GridTaskInventoryTarget)target).RelayArtifactAsync(source, spec, token);
+                logger.LogInformation(
+                    "Artifact target receipt verified; outcome={Outcome} assetTransition={AssetTransition} marker=verified",
+                    result.Idempotent ? "idempotent" : "copied",
+                    result.Target.AssetUUID == source.AssetUUID ? "preserved" : "rekeyed");
                 return new ArtifactRelayResultDto(parsed.ToString(), spec.TargetObjectId.ToString(), spec.ExpectedBundleKey,
                     result.Copied, result.Idempotent, ArtifactInventoryItemDto.From(source),
                     ArtifactInventoryItemDto.From(result.Target));
@@ -80,8 +84,9 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                     deadline.Token) ?? throw new ArtifactRelayException("receipt_unconfirmed",
                         "The accepted inventory item could not be fetched.", true, true);
                 if (_artifactOfferGate.Complete(item, _client.Self.AgentID, DateTimeOffset.UtcNow,
-                        out var mismatchSummary))
-                    logger.LogInformation("Artifact task receipt verified");
+                        out var mismatchSummary, out var assetRekeyed))
+                    logger.LogInformation("Artifact task receipt verified; assetTransition={AssetTransition}",
+                        assetRekeyed ? "rekeyed" : "preserved");
                 else
                     logger.LogWarning(
                         "Artifact task receipt did not match the registered expectation; fields={Fields}",

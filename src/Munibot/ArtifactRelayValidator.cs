@@ -30,6 +30,7 @@ internal static class ArtifactRelayValidator
         var targetOwner = Uuid(request.TargetOwnerId, "Target owner UUID");
         var targetGroup = Uuid(request.TargetGroupId, "Target group UUID", allowZero: true);
         var bundleKey = ExactName(request.ExpectedBundleKey, "Expected bundle key");
+        var deliveryMarker = DeliveryMarker(request.DeliveryMarker);
         ArgumentNullException.ThrowIfNull(request.ExpectedTargetPermissions);
         if (request.BundleMarkers is null || request.BundleMarkers.Count is < 1 or > 16)
             throw new ArgumentException("Between one and 16 exact bundle markers are required.");
@@ -37,7 +38,7 @@ internal static class ArtifactRelayValidator
         if (markers.Select(x => x.Name).Distinct(StringComparer.Ordinal).Count() != markers.Count)
             throw new ArgumentException("Bundle marker names must be unique and case-sensitive.");
         return new(targetObjectId, region, position, targetName, targetOwner, targetGroup, bundleKey,
-            markers, request.ExpectedTargetPermissions);
+            deliveryMarker, markers, request.ExpectedTargetPermissions);
     }
 
     private static ArtifactBundleMarkerSpec NormalizeMarker(ArtifactBundleMarkerDto marker, int index)
@@ -63,6 +64,15 @@ internal static class ArtifactRelayValidator
         if (string.IsNullOrWhiteSpace(value) || value != value.Trim() || value.Length > 255 ||
             value.IndexOfAny(['\r', '\n', '\0']) >= 0 || (rejectQuote && value.Contains('\'')))
             throw new ArgumentException($"{label} must be an exact inventory-safe value of at most 255 characters.");
+        return value;
+    }
+
+    private static string DeliveryMarker(string? value)
+    {
+        const string prefix = "munibase-artifact:";
+        if (string.IsNullOrWhiteSpace(value) || !value.StartsWith(prefix, StringComparison.Ordinal)
+            || !Guid.TryParseExact(value[prefix.Length..], "N", out var releaseId) || releaseId == Guid.Empty)
+            throw new ArgumentException("Delivery marker must identify one nonzero scanner artifact release.");
         return value;
     }
 }

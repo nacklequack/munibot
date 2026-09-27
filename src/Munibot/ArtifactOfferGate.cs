@@ -76,11 +76,13 @@ internal sealed class ArtifactOfferGate(TimeSpan? lifetime = null)
         }
     }
 
-    public bool Complete(InventoryItem item, UUID botId, DateTimeOffset now, out string? mismatchSummary)
+    public bool Complete(InventoryItem item, UUID botId, DateTimeOffset now, out string? mismatchSummary,
+        out bool assetRekeyed)
     {
         lock (sync)
         {
             mismatchSummary = null;
+            assetRekeyed = false;
             ExpireActive(now);
             if (activeRequestId is null || !entries.TryGetValue(activeRequestId.Value, out var entry) ||
                 entry.Status != "receiving" || entry.ReceivedItemId != item.UUID) return false;
@@ -89,7 +91,10 @@ internal sealed class ArtifactOfferGate(TimeSpan? lifetime = null)
             if (item.AssetType != AssetType.Object) mismatches.Add("asset type");
             if (item.InventoryType != InventoryType.Object) mismatches.Add("inventory type");
             if (item.OwnerID != botId) mismatches.Add("owner");
-            if (item.AssetUUID != expected.AssetId) mismatches.Add("asset identity");
+            // A task-to-avatar ownership transfer may mint a new object asset while
+            // applying next-owner permissions. The receipt event's item ID binds the
+            // accepted inventory entry; the resulting nonzero asset starts the next leg.
+            if (item.AssetUUID == UUID.Zero) mismatches.Add("asset identity");
             if (item.Name != expected.InventoryName) mismatches.Add("inventory name");
             mismatches.AddRange(expected.Permissions.TransferredReceiptMismatches(item.Permissions));
             if (mismatches.Count != 0)
@@ -99,6 +104,7 @@ internal sealed class ArtifactOfferGate(TimeSpan? lifetime = null)
                     $"The received inventory item did not match the expected {mismatchSummary}.", false, false);
                 return false;
             }
+            assetRekeyed = item.AssetUUID != expected.AssetId;
             entry.Status = "received";
             entry.Receipt = new ArtifactOfferReceiptDto(
                 expected.RequestId.ToString(), expected.SourceObjectId.ToString(), now,

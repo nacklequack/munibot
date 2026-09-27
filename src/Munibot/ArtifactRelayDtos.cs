@@ -49,6 +49,7 @@ public sealed record ArtifactInventoryItemDto(
     string ItemId,
     string AssetId,
     string Name,
+    string Description,
     string AssetType,
     string InventoryType,
     string OwnerId,
@@ -63,6 +64,7 @@ public sealed record ArtifactInventoryItemDto(
         item.UUID.ToString(),
         item.AssetUUID.ToString(),
         item.Name,
+        item.Description,
         item.AssetType.ToString(),
         item.InventoryType.ToString(),
         item.OwnerID.ToString(),
@@ -110,6 +112,7 @@ public sealed record ArtifactRelayRequestDto(
     string TargetOwnerId,
     string TargetGroupId,
     string ExpectedBundleKey,
+    string DeliveryMarker,
     IReadOnlyList<ArtifactBundleMarkerDto> BundleMarkers,
     InventoryPermissionMasksDto ExpectedTargetPermissions);
 
@@ -165,6 +168,7 @@ internal sealed record ArtifactRelaySpec(
     UUID TargetOwnerId,
     UUID TargetGroupId,
     string ExpectedBundleKey,
+    string DeliveryMarker,
     IReadOnlyList<ArtifactBundleMarkerSpec> BundleMarkers,
     InventoryPermissionMasksDto ExpectedTargetPermissions);
 
