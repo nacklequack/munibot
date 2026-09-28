@@ -172,27 +172,31 @@ bundle identity before constructing this request.
 The bot receipt must still match the live source item. The source must be an object with
 modify, copy and transfer permissions, so Rosalind can retain the source, restrict the
 outgoing copy, and transfer it to the scanner. Another-owner managed targets must use the
-bot's active group. Because an ownership transfer can clear the received copy's group
-grants, Munibot patches only that exact receipt-bound item's group mask through the
-inventory API, re-fetches it, and verifies its item identity, ownership, types, name,
-description, and every unrelated permission mask before any scanner mutation. Object
-asset UUIDs may remain opaque; a visible UUID may not change. A same-request retry may
-match either the receipt's original group mask or exactly that mask plus the required
-sharing grants; every other receipt field remains immutable.
+bot's active group. Before touching the scanner, Munibot persists the required group
+sharing, copy-only next-owner mask, and release description marker on that exact
+receipt-bound inventory item through the inventory API. It re-fetches the item and
+verifies its identity, ownership, types, name, marker, prepared masks, and every
+unrelated permission mask. Object asset UUIDs may remain opaque; a visible UUID may not
+change. A same-request retry may match either the receipt's original group/next-owner
+masks or exactly the prepared values; every other receipt field remains immutable.
 
 The target permission contract is intentionally different from the source contract.
 Munibot changes the outgoing copy to Copy plus Second Life's Move bit and removes Modify
 and Transfer from both its Owner and Next Owner masks. Base remains the source object's
 exact base mask; Group and Everyone are zero. Munibot rejects any other target policy,
-keeps the full-permission source in bot inventory, and requires exact target readback.
+keeps full owner permissions on the source in bot inventory, and requires exact target
+readback. The copy-only target may hide its asset UUID; the exact release description
+marker supplies its stable lineage proof.
 
 Before mutation, an existing exact name is either an exact identity/permission match
 (idempotent success) or a conflict. Munibot never removes or replaces a scanner item.
 After `UpdateTaskInventory`, it reads the complete task inventory again and returns the
-actual task item ID, exact asset/name/type, and all five masks. A failed read after the
-copy reports `outcomeUnknown: true`; inspect or retry the same request. An exact prior
-copy makes that retry idempotently successful. The bot source and all prior scanner
-items remain untouched on every failure path.
+actual task item ID, exact name/type/marker, and all five masks. A visible target asset
+UUID is returned but is not required for a copy-only item. A failed read after the copy
+reports `outcomeUnknown: true`; inspect or retry the same request. An exact prior copy
+makes that retry idempotently successful. The receipt-bound bot source keeps its item
+identity and full owner rights; all prior scanner items remain untouched on every
+failure path.
 
 The successful scanner response is:
 

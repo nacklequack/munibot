@@ -5,11 +5,15 @@ namespace Munibot.Tests;
 
 public sealed class ArtifactSourceSharingTests
 {
+    private const string DeliveryMarker = "munibase-artifact:11111111111141118111111111111111";
     private static readonly UUID Bot = UUID.Random();
     private static readonly UUID Group = UUID.Random();
+    private static readonly InventoryPermissionMasksDto TargetMasks = new(
+        (uint)PermissionMask.All, (uint)(PermissionMask.Move | PermissionMask.Copy),
+        0, 0, (uint)(PermissionMask.Move | PermissionMask.Copy));
 
     [Fact]
-    public async Task PatchesOnlyGroupMaskThenVerifiesExactOpaqueReceiptItem()
+    public async Task PersistsSharingMarkerAndNextOwnerThenVerifiesExactOpaqueReceiptItem()
     {
         var source = Source();
         source.AssetUUID = UUID.Zero;
@@ -18,12 +22,14 @@ public sealed class ArtifactSourceSharingTests
         var sharing = new ArtifactSourceSharing((id, patch, _) =>
         {
             Assert.Equal(source.UUID, id);
-            Assert.Single(patch);
+            Assert.Equal(2, patch.Count);
             var permissions = Assert.IsType<OSDMap>(patch["permissions"]);
-            Assert.Single(permissions);
+            Assert.Equal(2, permissions.Count);
             Assert.Equal(OSDType.Integer, permissions["group_mask"].Type);
             Assert.Equal((uint)TaskInventorySharing.SharedSourceMask,
                 permissions["group_mask"].AsUInteger());
+            Assert.Equal(TargetMasks.NextOwner, permissions["next_owner_mask"].AsUInteger());
+            Assert.Equal(DeliveryMarker, patch["desc"].AsString());
             return acknowledged.Task;
         }, (id, owner, _) =>
         {
@@ -33,7 +39,7 @@ public sealed class ArtifactSourceSharingTests
             return Task.FromResult<InventoryItem?>(Prepared(source));
         });
 
-        var pending = sharing.PrepareAsync(source, Bot, Group, default);
+        var pending = sharing.PrepareAsync(source, Bot, Group, DeliveryMarker, TargetMasks, default);
         Assert.False(pending.IsCompleted);
         Assert.Equal(0, fetches);
         acknowledged.SetResult(true);
@@ -44,6 +50,8 @@ public sealed class ArtifactSourceSharingTests
         Assert.Equal(UUID.Zero, prepared.AssetUUID);
         Assert.Equal(UUID.Zero, prepared.GroupID);
         Assert.Equal(TaskInventorySharing.SharedSourceMask, prepared.Permissions.GroupMask);
+        Assert.Equal((PermissionMask)TargetMasks.NextOwner, prepared.Permissions.NextOwnerMask);
+        Assert.Equal(DeliveryMarker, prepared.Description);
         Assert.Equal(PermissionMask.None, source.Permissions.GroupMask);
     }
 
@@ -55,7 +63,8 @@ public sealed class ArtifactSourceSharingTests
         var visible = UUID.Random();
         var fetched = Prepared(source);
         fetched.AssetUUID = visible;
-        var prepared = await Sharing(fetched).PrepareAsync(source, Bot, Group, default);
+        var prepared = await Sharing(fetched).PrepareAsync(
+            source, Bot, Group, DeliveryMarker, TargetMasks, default);
 
         Assert.Equal(source.UUID, prepared.UUID);
         Assert.Equal(visible, prepared.AssetUUID);
@@ -69,9 +78,9 @@ public sealed class ArtifactSourceSharingTests
         fetched.AssetUUID = UUID.Random();
 
         var error = await Assert.ThrowsAsync<ArtifactRelayException>(() =>
-            Sharing(fetched).PrepareAsync(source, Bot, Group, default));
+            Sharing(fetched).PrepareAsync(source, Bot, Group, DeliveryMarker, TargetMasks, default));
 
-        Assert.Equal("source_sharing_unconfirmed", error.Code);
+        Assert.Equal("source_preparation_unconfirmed", error.Code);
         Assert.Contains("asset_id (expected nonzero, observed nonzero)", error.Message);
         Assert.DoesNotContain(source.AssetUUID.ToString(), error.Message);
         Assert.DoesNotContain(fetched.AssetUUID.ToString(), error.Message);
@@ -118,9 +127,9 @@ public sealed class ArtifactSourceSharingTests
         }
 
         var error = await Assert.ThrowsAsync<ArtifactRelayException>(() =>
-            Sharing(fetched).PrepareAsync(source, Bot, Group, default));
+            Sharing(fetched).PrepareAsync(source, Bot, Group, DeliveryMarker, TargetMasks, default));
 
-        Assert.Equal("source_sharing_unconfirmed", error.Code);
+        Assert.Equal("source_preparation_unconfirmed", error.Code);
         Assert.Contains(": " + field, error.Message);
         Assert.Contains("Nothing was copied to the target", error.Message);
         Assert.DoesNotContain(source.UUID.ToString(), error.Message);
@@ -134,9 +143,9 @@ public sealed class ArtifactSourceSharingTests
             (_, _, _) => throw new InvalidOperationException("Fetch must not run"));
 
         var error = await Assert.ThrowsAsync<ArtifactRelayException>(() =>
-            sharing.PrepareAsync(Source(), Bot, Group, default));
+            sharing.PrepareAsync(Source(), Bot, Group, DeliveryMarker, TargetMasks, default));
 
-        Assert.Equal("source_sharing_denied", error.Code);
+        Assert.Equal("source_preparation_denied", error.Code);
         Assert.Contains("Nothing was copied to the target", error.Message);
         Assert.False(error.OutcomeUnknown);
     }
@@ -146,15 +155,44 @@ public sealed class ArtifactSourceSharingTests
     {
         var source = Source();
         source.Permissions.GroupMask = TaskInventorySharing.SharedSourceMask;
+        source.Permissions.NextOwnerMask = (PermissionMask)TargetMasks.NextOwner;
+        source.Description = DeliveryMarker;
         var fetched = Prepared(source);
         var sharing = new ArtifactSourceSharing(
             (_, _, _) => throw new InvalidOperationException("Patch must not run"),
             (_, _, _) => Task.FromResult<InventoryItem?>(fetched));
 
-        var prepared = await sharing.PrepareAsync(source, Bot, Group, default);
+        var prepared = await sharing.PrepareAsync(
+            source, Bot, Group, DeliveryMarker, TargetMasks, default);
 
         Assert.Equal(source.UUID, prepared.UUID);
         Assert.Equal(TaskInventorySharing.SharedSourceMask, prepared.Permissions.GroupMask);
+    }
+
+    [Fact]
+    public async Task ZeroGroupStillPersistsMarkerAndNextOwnerWithoutChangingGroupMask()
+    {
+        var source = Source();
+        var fetched = Prepared(source);
+        fetched.Permissions.GroupMask = source.Permissions.GroupMask;
+        OSDMap? observedPatch = null;
+        var sharing = new ArtifactSourceSharing((_, patch, _) =>
+        {
+            observedPatch = patch;
+            return Task.FromResult(true);
+        }, (_, _, _) => Task.FromResult<InventoryItem?>(fetched));
+
+        var prepared = await sharing.PrepareAsync(
+            source, Bot, UUID.Zero, DeliveryMarker, TargetMasks, default);
+
+        Assert.NotNull(observedPatch);
+        Assert.Equal(DeliveryMarker, observedPatch["desc"].AsString());
+        var permissions = Assert.IsType<OSDMap>(observedPatch["permissions"]);
+        Assert.Single(permissions);
+        Assert.False(permissions.ContainsKey("group_mask"));
+        Assert.Equal(TargetMasks.NextOwner, permissions["next_owner_mask"].AsUInteger());
+        Assert.Equal(source.Permissions.GroupMask, prepared.Permissions.GroupMask);
+        Assert.Equal((PermissionMask)TargetMasks.NextOwner, prepared.Permissions.NextOwnerMask);
     }
 
     [Theory]
@@ -170,7 +208,7 @@ public sealed class ArtifactSourceSharingTests
             (_, _, _) => throw new InvalidOperationException("Fetch must not run"));
 
         var error = await Assert.ThrowsAsync<ArtifactRelayException>(() =>
-            sharing.PrepareAsync(source, Bot, Group, default));
+            sharing.PrepareAsync(source, Bot, Group, DeliveryMarker, TargetMasks, default));
 
         Assert.Equal("source_permission_denied", error.Code);
     }
@@ -203,7 +241,7 @@ public sealed class ArtifactSourceSharingTests
         GroupID = UUID.Zero,
         GroupOwned = false,
         Name = source.Name,
-        Description = source.Description,
+        Description = DeliveryMarker,
         AssetUUID = source.AssetUUID,
         AssetType = source.AssetType,
         InventoryType = source.InventoryType,
@@ -211,7 +249,7 @@ public sealed class ArtifactSourceSharingTests
             (uint)source.Permissions.BaseMask,
             (uint)source.Permissions.EveryoneMask,
             (uint)(source.Permissions.GroupMask | TaskInventorySharing.SharedSourceMask),
-            (uint)source.Permissions.NextOwnerMask,
+            TargetMasks.NextOwner,
             (uint)source.Permissions.OwnerMask)
     };
 }
