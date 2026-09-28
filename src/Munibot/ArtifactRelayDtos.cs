@@ -11,6 +11,8 @@ public sealed record InventoryPermissionMasksDto(
 {
     private const uint EffectivePermissionMask =
         (uint)(PermissionMask.Move | PermissionMask.Modify | PermissionMask.Copy | PermissionMask.Transfer);
+    private const uint AccessPermissionMask =
+        (uint)(PermissionMask.Modify | PermissionMask.Copy | PermissionMask.Transfer);
 
     internal static InventoryPermissionMasksDto From(Permissions permissions) => new(
         (uint)permissions.BaseMask,
@@ -48,6 +50,29 @@ public sealed record InventoryPermissionMasksDto(
         if (((received.Everyone & EffectivePermissionMask) & ~(Everyone & EffectivePermissionMask)) != 0)
             mismatches.Add("everyone permissions");
         if ((received.NextOwner & EffectivePermissionMask) != (NextOwner & EffectivePermissionMask))
+            mismatches.Add("next-owner permissions");
+
+        return mismatches;
+    }
+
+    internal IReadOnlyList<string> TargetReceiptMismatches(Permissions permissions)
+    {
+        var received = From(permissions);
+        var mismatches = new List<string>();
+        var requiredBase = (Owner | NextOwner) & AccessPermissionMask;
+
+        // Base is a ceiling rather than a grant. Ownership transfer may clamp it
+        // to next-owner permissions, so require the requested access without
+        // demanding the source's pre-transfer ceiling.
+        if ((received.Base & requiredBase) != requiredBase)
+            mismatches.Add("base permissions");
+        if ((received.Owner & AccessPermissionMask) != (Owner & AccessPermissionMask))
+            mismatches.Add("owner permissions");
+        if (((received.Group & AccessPermissionMask) & ~(Group & AccessPermissionMask)) != 0)
+            mismatches.Add("group permissions");
+        if (((received.Everyone & AccessPermissionMask) & ~(Everyone & AccessPermissionMask)) != 0)
+            mismatches.Add("everyone permissions");
+        if ((received.NextOwner & AccessPermissionMask) != (NextOwner & AccessPermissionMask))
             mismatches.Add("next-owner permissions");
 
         return mismatches;

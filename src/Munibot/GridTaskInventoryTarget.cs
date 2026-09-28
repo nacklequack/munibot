@@ -480,7 +480,7 @@ internal sealed class GridTaskInventoryTarget(
         if (target.Description != deliveryMarker) mismatches.Add("delivery marker");
         if (target.AssetType != AssetType.Object) mismatches.Add("asset type");
         if (target.InventoryType != InventoryType.Object) mismatches.Add("inventory type");
-        mismatches.AddRange(expectedPermissions.TransferredReceiptMismatches(target.Permissions));
+        mismatches.AddRange(expectedPermissions.TargetReceiptMismatches(target.Permissions));
         if (mismatches.Count != 0)
             throw new ArtifactRelayException("target_receipt_mismatch",
                 $"The target object copy did not match the expected {string.Join(", ", mismatches)}.",

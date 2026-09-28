@@ -233,17 +233,31 @@ public sealed class ArtifactTargetVerificationTests
     }
 
     [Fact]
-    public void DestinationMayNormalizeNonEffectivePermissionBits()
+    public void DestinationMayClampBaseAndRetainGroupMovePermission()
     {
         var source = Source();
         var delivered = Source(UUID.Random());
         delivered.Description = DeliveryMarker;
-        var effective = (uint)(PermissionMask.Move | PermissionMask.Modify |
-            PermissionMask.Copy | PermissionMask.Transfer);
         var copyOnly = (uint)(PermissionMask.Move | PermissionMask.Copy);
-        delivered.Permissions = new Permissions(effective, 0, 0, copyOnly, copyOnly);
+        delivered.Permissions = new Permissions(copyOnly, 0, (uint)PermissionMask.Move, copyOnly, copyOnly);
 
         GridTaskInventoryTarget.VerifyDelivered(delivered, source, DeliveryMarker, TargetMasks, true);
+    }
+
+    [Fact]
+    public void DestinationRejectsEffectiveGroupGrant()
+    {
+        var source = Source();
+        var delivered = Source(UUID.Random());
+        delivered.Description = DeliveryMarker;
+        var copyOnly = (uint)(PermissionMask.Move | PermissionMask.Copy);
+        delivered.Permissions = new Permissions(copyOnly, 0,
+            (uint)(PermissionMask.Move | PermissionMask.Copy), copyOnly, copyOnly);
+
+        var error = Assert.Throws<ArtifactRelayException>(() =>
+            GridTaskInventoryTarget.VerifyDelivered(delivered, source, DeliveryMarker, TargetMasks, true));
+
+        Assert.Contains("group permissions", error.Message);
     }
 
     [Fact]
