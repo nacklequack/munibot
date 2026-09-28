@@ -124,8 +124,21 @@ receipt for `{requestId}`:
   "bundleMarkers": [
     {
       "name": "<managed-runtime-marker-name>",
-      "assetId": "<exact-marker-asset-uuid>",
-      "assetType": "LSLText"
+      "assetId": "<managed-marker-asset-uuid>",
+      "assetType": "LSLText",
+      "scriptProof": {
+        "inventoryType": "LSL",
+        "permissions": {
+          "base": 2147483647,
+          "owner": 2147483647,
+          "group": 2147483647,
+          "everyone": 2147483647,
+          "nextOwner": 2147483647
+        },
+        "running": true,
+        "sourceSha256": "<normalized-source-sha256>",
+        "experienceId": "<expected-experience-uuid-or-zero>"
+      }
     }
   ],
   "expectedTargetPermissions": {
@@ -143,7 +156,18 @@ existing distributed bot executor lease for the entire trip. Munibot holds its o
 teleport and inventory locks, waits for movement completion, resolves the exact visible
 scanner UUID, excludes attachments, and requires object modify access. It then reads
 object properties and requires exact target UUID, name, owner, and group plus every
-exact case-sensitive bundle marker name/type/asset ID.
+exact case-sensitive bundle marker proof described below.
+
+Managed script heartbeats and task-inventory reads may expose asset identifiers from
+different Second Life namespaces. Omitting `scriptProof` retains the original exact
+asset-ID requirement. Supplying it explicitly permits a non-comparable script asset ID
+only after Munibot proves the exact single name, `LSLText`/`LSL` types, all five
+permission masks, normalized source hash, running state, and explicit Experience
+association against the live task item. A zero Experience UUID means no association;
+missing or unreadable metadata is not proof. The request-correlated diagnostic records
+the marker index, verification mode, and mismatched field names without logging their
+private values. Munibase must continue authenticating current managed enrollment and
+bundle identity before constructing this request.
 
 The bot receipt must still match the live source item. The source must be an object with
 modify, copy and transfer permissions, so Rosalind can retain the source, restrict the
@@ -197,7 +221,8 @@ No automated test in this repository performs in-world mutations. After review, 
 and deployment, the control-plane operator can run one explicit canary:
 
 1. Use a disposable enrolled community drop box and one disposable managed scanner near
-   an existing regional stocking landmark. Record the deployed Munibot commit/image.
+   an existing regional stocking landmark. Record the deployed Munibot commit/image and
+   the paired Munibase build that supplies the complete live-bundle `scriptProof`.
 2. Snapshot the raw object identity and five masks in the drop box; snapshot the exact
    scanner UUID/name/owner/group, bundle markers, and full task inventory.
 3. Have Munibase authenticate and record the drop-box command, create the 60-second
@@ -205,7 +230,9 @@ and deployment, the control-plane operator can run one explicit canary:
 4. Require a `received` bot receipt with the same raw name/type/asset and expected masks.
    Separately confirm unsolicited and deliberately mismatched offers are declined.
 5. Run the scoped scanner PUT through the existing executor lease and stocking landmark.
-   Require exact fresh target readback and retain the bot source item.
+   Require a request-correlated bundle-marker diagnostic with `identityMode=exact` or
+   `identityMode=script-proof` before target mutation, exact fresh target readback, and
+   retention of the bot source item.
 6. Retry the same request and require `idempotent: true`, `copied: false`, and the same
    target task item ID. Confirm unrelated and prior scanner inventory is unchanged.
 7. Have the scanner independently report the same object identity through the #967

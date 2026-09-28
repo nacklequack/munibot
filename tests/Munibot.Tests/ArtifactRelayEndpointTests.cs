@@ -55,6 +55,34 @@ public sealed class ArtifactRelayEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, absent.StatusCode);
     }
 
+    [Fact]
+    public async Task DeliveryRouteBindsCompleteScriptCompatibilityProof()
+    {
+        await using var host = await Host.StartAsync(false);
+        using var client = host.CreateClient("artifact-token");
+        var masks = new InventoryPermissionMasksDto(
+            (uint)PermissionMask.All, (uint)PermissionMask.All, (uint)PermissionMask.All,
+            (uint)PermissionMask.All, (uint)PermissionMask.All);
+        var experience = Guid.NewGuid();
+        var proof = new ArtifactBundleScriptProofDto(
+            "LSL", masks, true, new string('a', 64), experience.ToString());
+        var request = new ArtifactRelayRequestDto("Briarmont", new Vector3Dto(128, 128, 25),
+            "Titler Scanner", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "titler-scanner",
+            "munibase-artifact:11111111111141118111111111111111",
+            [new("titler-scanner.lsl", Guid.NewGuid().ToString(), "LSLText", proof)], masks);
+
+        using var response = await client.PutAsJsonAsync(
+            $"/api/objects/{Guid.NewGuid()}/inventory/artifacts/{Guid.NewGuid()}", request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var bound = Assert.Single(host.Service.LastRelayRequest!.BundleMarkers).ScriptProof!;
+        Assert.Equal("LSL", bound.InventoryType);
+        Assert.Equal(masks, bound.Permissions);
+        Assert.True(bound.Running);
+        Assert.Equal(new string('a', 64), bound.SourceSha256);
+        Assert.Equal(experience.ToString(), bound.ExperienceId);
+    }
+
     private static ArtifactOfferExpectationRequestDto Offer() => new(
         Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), "Community Drop Box", "Scanner HUD",
         Guid.NewGuid().ToString(), new(1, 2, 3, 4, 5));
@@ -104,6 +132,7 @@ public sealed class ArtifactRelayEndpointTests
     {
         public int Registrations { get; private set; }
         public int Relays { get; private set; }
+        public ArtifactRelayRequestDto? LastRelayRequest { get; private set; }
 
         public ArtifactOfferStatusDto RegisterArtifactOffer(string requestId,
             ArtifactOfferExpectationRequestDto request)
@@ -119,6 +148,7 @@ public sealed class ArtifactRelayEndpointTests
             ArtifactRelayRequestDto request, CancellationToken ct)
         {
             Relays++;
+            LastRelayRequest = request;
             var item = new ArtifactInventoryItemDto(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(),
                 "Scanner HUD", request.DeliveryMarker, "Object", "Object", Guid.NewGuid().ToString(), Guid.Empty.ToString(), false,
                 request.ExpectedTargetPermissions, true, true, true);
