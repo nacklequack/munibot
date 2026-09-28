@@ -37,7 +37,7 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
                 var source = await _client.Inventory.FetchItemAsync(sourceId, _client.Self.AgentID, token)
                     ?? throw new ArtifactRelayException("source_missing",
                         "The exact received bot inventory item was not found.", true);
-                if (!MatchesReceipt(source, receipt.Item))
+                if (!MatchesReceipt(source, receipt.Item, spec.ExpectedTargetPermissions.NextOwner))
                     throw new ArtifactRelayException("source_changed",
                         "The bot inventory item no longer matches its verified receipt.");
                 var result = await ((GridTaskInventoryTarget)target).RelayArtifactAsync(source, spec, parsed, token);
@@ -122,13 +122,14 @@ public sealed partial class SecondLifeBotSession : IArtifactRelayService
         }
     }
 
-    internal static bool MatchesReceipt(InventoryItem item, ArtifactInventoryItemDto receipt) =>
+    internal static bool MatchesReceipt(InventoryItem item, ArtifactInventoryItemDto receipt,
+        uint preparedNextOwner) =>
         item.UUID.ToString() == receipt.ItemId &&
         (receipt.AssetId == UUID.Zero.ToString() || item.AssetUUID.ToString() == receipt.AssetId) &&
         item.Name == receipt.Name && item.AssetType.ToString() == receipt.AssetType &&
         item.InventoryType.ToString() == receipt.InventoryType && item.OwnerID.ToString() == receipt.OwnerId &&
         item.GroupID.ToString() == receipt.GroupId && item.GroupOwned == receipt.GroupOwned &&
-        receipt.Permissions.MatchesPreparedArtifactSource(item.Permissions);
+        receipt.Permissions.MatchesPreparedArtifactSource(item.Permissions, preparedNextOwner);
 }
 
 internal static class ArtifactOfferProtocol

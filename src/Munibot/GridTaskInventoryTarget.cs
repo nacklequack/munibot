@@ -169,22 +169,22 @@ internal sealed class GridTaskInventoryTarget(
         {
             throw new ArtifactRelayException("target_permission_denied", ex.Message, ex.Retryable, ex.OutcomeUnknown);
         }
-        if (sourceGroup != UUID.Zero)
-        {
-            var sourceNeedsSharing =
-                (source.Permissions.GroupMask & TaskInventorySharing.SharedSourceMask) !=
-                TaskInventorySharing.SharedSourceMask;
-            if (sourceNeedsSharing && !client.AisClient.IsAvailable)
-                throw new ArtifactRelayException("capability_unavailable",
-                    "Verified received-artifact sharing requires the inventory API.", true);
-            source = await new ArtifactSourceSharing(
-                    (id, changes, token) => client.AisClient.UpdateItemAsync(id, changes, token),
-                    (id, owner, token) => client.Inventory.FetchItemAsync(id, owner, token))
-                .PrepareAsync(source, client.Self.AgentID, sourceGroup, ct);
-        }
+        var sourceNeedsPreparation = source.Description != spec.DeliveryMarker ||
+            (uint)source.Permissions.NextOwnerMask != spec.ExpectedTargetPermissions.NextOwner ||
+            sourceGroup != UUID.Zero &&
+            (source.Permissions.GroupMask & TaskInventorySharing.SharedSourceMask) !=
+            TaskInventorySharing.SharedSourceMask;
+        if (sourceNeedsPreparation && !client.AisClient.IsAvailable)
+            throw new ArtifactRelayException("capability_unavailable",
+                "Verified received-artifact delivery preparation requires the inventory API.", true);
+        source = await new ArtifactSourceSharing(
+                (id, changes, token) => client.AisClient.UpdateItemAsync(id, changes, token),
+                (id, owner, token) => client.Inventory.FetchItemAsync(id, owner, token))
+            .PrepareAsync(source, client.Self.AgentID, sourceGroup, spec.DeliveryMarker,
+                spec.ExpectedTargetPermissions, ct);
         VerifySourceSharing(source, sourceGroup);
         logger.LogInformation(
-            "Artifact source sharing verified; requestId={RequestId} sharing={Sharing} assetIdentity={AssetIdentity} targetMutation=not-started",
+            "Artifact source delivery prepared; requestId={RequestId} sharing={Sharing} assetIdentity={AssetIdentity} marker=verified permissions=verified targetMutation=not-started",
             requestId, sourceGroup == UUID.Zero ? "not-required" : "active-group",
             source.AssetUUID == UUID.Zero ? "opaque" : "visible");
 
@@ -480,7 +480,6 @@ internal sealed class GridTaskInventoryTarget(
         if (target.Description != deliveryMarker) mismatches.Add("delivery marker");
         if (target.AssetType != AssetType.Object) mismatches.Add("asset type");
         if (target.InventoryType != InventoryType.Object) mismatches.Add("inventory type");
-        if (target.AssetUUID == UUID.Zero) mismatches.Add("asset identity");
         if (!expectedPermissions.Matches(target.Permissions)) mismatches.Add("permissions");
         if (mismatches.Count != 0)
             throw new ArtifactRelayException("target_receipt_mismatch",

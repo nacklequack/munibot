@@ -8,34 +8,39 @@ internal sealed class ArtifactSourceSharing(
     Func<UUID, UUID, CancellationToken, Task<InventoryItem?>> fetch)
 {
     public async Task<InventoryItem> PrepareAsync(InventoryItem source, UUID botId, UUID groupId,
-        CancellationToken ct)
+        string deliveryMarker, InventoryPermissionMasksDto targetPermissions, CancellationToken ct)
     {
         if (source.UUID == UUID.Zero || source.OwnerID != botId || source.GroupOwned)
             throw new ArtifactRelayException("source_changed",
                 "Only the exact received bot-owned artifact may have its sharing prepared.");
-        if (groupId == UUID.Zero) return Copy(source);
-        if ((source.Permissions.OwnerMask & TaskInventorySharing.SharedSourceMask) !=
+        if (groupId != UUID.Zero &&
+            ((source.Permissions.OwnerMask & TaskInventorySharing.SharedSourceMask) !=
                 TaskInventorySharing.SharedSourceMask ||
             (source.Permissions.BaseMask & TaskInventorySharing.SharedSourceMask) !=
-                TaskInventorySharing.SharedSourceMask)
+                TaskInventorySharing.SharedSourceMask))
             throw new ArtifactRelayException("source_permission_denied",
                 "The received artifact does not permit the sharing required by the managed scanner.");
 
-        var expectedGroupMask = source.Permissions.GroupMask | TaskInventorySharing.SharedSourceMask;
+        var expectedGroupMask = groupId == UUID.Zero
+            ? source.Permissions.GroupMask
+            : source.Permissions.GroupMask | TaskInventorySharing.SharedSourceMask;
+        var expectedNextOwnerMask = (PermissionMask)targetPermissions.NextOwner;
         var before = Snapshot.Capture(source);
-        if (source.Permissions.GroupMask != expectedGroupMask)
+        if (source.Permissions.GroupMask != expectedGroupMask ||
+            source.Permissions.NextOwnerMask != expectedNextOwnerMask ||
+            source.Description != deliveryMarker)
         {
-            var changes = new OSDMap
-            {
-                ["permissions"] = new OSDMap
-                {
-                    // Inventory masks are LLSD integers; FromUInteger emits binary data.
-                    ["group_mask"] = OSD.FromInteger((uint)expectedGroupMask)
-                }
-            };
+            var permissions = new OSDMap();
+            if (source.Permissions.GroupMask != expectedGroupMask)
+                permissions["group_mask"] = OSD.FromInteger((uint)expectedGroupMask);
+            if (source.Permissions.NextOwnerMask != expectedNextOwnerMask)
+                permissions["next_owner_mask"] = OSD.FromInteger((uint)expectedNextOwnerMask);
+            var changes = new OSDMap { ["desc"] = OSD.FromString(deliveryMarker) };
+            // Inventory masks are LLSD integers; FromUInteger emits binary data.
+            if (permissions.Count != 0) changes["permissions"] = permissions;
             if (!await update(before.ItemId, changes, ct))
-                throw new ArtifactRelayException("source_sharing_denied",
-                    "The received artifact sharing update was rejected. Nothing was copied to the target.");
+                throw new ArtifactRelayException("source_preparation_denied",
+                    "The received artifact delivery preparation was rejected. Nothing was copied to the target.");
         }
 
         var fetched = await fetch(before.ItemId, botId, ct);
@@ -55,7 +60,8 @@ internal sealed class ArtifactSourceSharing(
             CompareMask(differences, "base_mask", before.BaseMask, prepared.Permissions.BaseMask);
             CompareMask(differences, "owner_mask", before.OwnerMask, prepared.Permissions.OwnerMask);
             CompareMask(differences, "everyone_mask", before.EveryoneMask, prepared.Permissions.EveryoneMask);
-            CompareMask(differences, "next_owner_mask", before.NextOwnerMask, prepared.Permissions.NextOwnerMask);
+            CompareMask(differences, "next_owner_mask", expectedNextOwnerMask,
+                prepared.Permissions.NextOwnerMask);
             // Object AssetUUID can remain opaque. A visible identity must not change, while an
             // opaque-to-visible transition is safe because the item UUID remains receipt-bound.
             if (before.AssetId != UUID.Zero && prepared.AssetUUID != UUID.Zero)
@@ -63,11 +69,11 @@ internal sealed class ArtifactSourceSharing(
             if (prepared.AssetType != before.AssetType) differences.Add("asset_type");
             if (prepared.InventoryType != before.InventoryType) differences.Add("inventory_type");
             if (prepared.Name != before.Name) differences.Add("name");
-            if (prepared.Description != before.Description) differences.Add("description");
+            if (prepared.Description != deliveryMarker) differences.Add("description");
         }
         if (differences.Count != 0)
-            throw new ArtifactRelayException("source_sharing_unconfirmed",
-                $"The received artifact sharing and identity were not verified: {string.Join("; ", differences)}. Nothing was copied to the target.",
+            throw new ArtifactRelayException("source_preparation_unconfirmed",
+                $"The received artifact delivery preparation was not verified: {string.Join("; ", differences)}. Nothing was copied to the target.",
                 true);
 
         if (prepared!.AssetUUID == UUID.Zero) prepared.AssetUUID = before.AssetId;

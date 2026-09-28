@@ -221,6 +221,18 @@ public sealed class ArtifactTargetVerificationTests
     }
 
     [Fact]
+    public void CopyOnlyDestinationMayHideAssetIdentityWhenMarkerAndPermissionsMatch()
+    {
+        var source = Source();
+        var delivered = Source(UUID.Random());
+        delivered.AssetUUID = UUID.Zero;
+        delivered.Description = DeliveryMarker;
+        delivered.Permissions = Permissions(TargetMasks);
+
+        GridTaskInventoryTarget.VerifyDelivered(delivered, source, DeliveryMarker, TargetMasks, true);
+    }
+
+    [Fact]
     public void PostCopyPermissionMismatchHasUnknownOutcomeAndPreservesPriorItems()
     {
         var source = Source();

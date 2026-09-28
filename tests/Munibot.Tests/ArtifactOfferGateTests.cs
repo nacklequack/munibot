@@ -223,30 +223,34 @@ public sealed class ArtifactOfferGateTests
     }
 
     [Fact]
-    public void ReceiptBindingAllowsOnlyTheSanctionedSourceSharingDeltaOnRetry()
+    public void ReceiptBindingAllowsOnlySanctionedPreparationDeltasOnRetry()
     {
+        var preparedNextOwner = (uint)(PermissionMask.Move | PermissionMask.Copy);
         var item = Item(UUID.Random());
         item.Permissions = new Permissions(Masks.Base, 0, 0, Masks.NextOwner, Masks.NextOwner);
         var receipt = ArtifactInventoryItemDto.From(item);
 
-        Assert.True(SecondLifeBotSession.MatchesReceipt(item, receipt));
+        Assert.True(SecondLifeBotSession.MatchesReceipt(item, receipt, preparedNextOwner));
         item.Permissions.GroupMask |= TaskInventorySharing.SharedSourceMask;
-        Assert.True(SecondLifeBotSession.MatchesReceipt(item, receipt));
+        Assert.True(SecondLifeBotSession.MatchesReceipt(item, receipt, preparedNextOwner));
+        item.Permissions.NextOwnerMask = (PermissionMask)preparedNextOwner;
+        Assert.True(SecondLifeBotSession.MatchesReceipt(item, receipt, preparedNextOwner));
 
         item.Permissions.EveryoneMask |= PermissionMask.Copy;
-        Assert.False(SecondLifeBotSession.MatchesReceipt(item, receipt));
+        Assert.False(SecondLifeBotSession.MatchesReceipt(item, receipt, preparedNextOwner));
     }
 
     [Fact]
     public void ReceiptBindingStillRejectsAdditionalGroupPermission()
     {
+        var preparedNextOwner = (uint)(PermissionMask.Move | PermissionMask.Copy);
         var item = Item(UUID.Random());
         item.Permissions = new Permissions(Masks.Base, 0, 0, Masks.NextOwner, Masks.NextOwner);
         var receipt = ArtifactInventoryItemDto.From(item);
 
         item.Permissions.GroupMask |= TaskInventorySharing.SharedSourceMask | PermissionMask.Transfer;
 
-        Assert.False(SecondLifeBotSession.MatchesReceipt(item, receipt));
+        Assert.False(SecondLifeBotSession.MatchesReceipt(item, receipt, preparedNextOwner));
     }
 
     [Fact]
