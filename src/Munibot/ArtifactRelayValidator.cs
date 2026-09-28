@@ -48,7 +48,39 @@ internal static class ArtifactRelayValidator
         var assetId = Uuid(marker.AssetId, $"Bundle marker {index + 1} asset UUID");
         if (!Enum.TryParse<AssetType>(marker.AssetType, true, out var assetType) || assetType is AssetType.Unknown)
             throw new ArgumentException($"Bundle marker {index + 1} has an unsupported asset type.");
-        return new(name, assetId, assetType);
+        ArtifactBundleScriptProofSpec? proof = null;
+        if (marker.ScriptProof is { } requested)
+        {
+            if (assetType != AssetType.LSLText ||
+                !Enum.TryParse<InventoryType>(requested.InventoryType, true, out var inventoryType) ||
+                inventoryType != InventoryType.LSL)
+                throw new ArgumentException(
+                    $"Bundle marker {index + 1} script proof requires LSLText asset and LSL inventory types.");
+            ArgumentNullException.ThrowIfNull(requested.Permissions);
+            if (!requested.Running || !HasFullScriptPermissions(requested.Permissions))
+                throw new ArgumentException(
+                    $"Bundle marker {index + 1} script proof requires a running, full-permission script.");
+            if (!IsSha256(requested.SourceSha256))
+                throw new ArgumentException(
+                    $"Bundle marker {index + 1} script proof requires a lowercase SHA-256 source hash.");
+            var experienceId = Uuid(requested.ExperienceId,
+                $"Bundle marker {index + 1} Experience UUID", allowZero: true);
+            proof = new(inventoryType, requested.Permissions, requested.Running,
+                requested.SourceSha256, Guid.Parse(experienceId.ToString()));
+        }
+        return new(name, assetId, assetType, proof);
+    }
+
+    private static bool IsSha256(string? value) => value is { Length: 64 } &&
+        value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+    private static bool HasFullScriptPermissions(InventoryPermissionMasksDto permissions)
+    {
+        const uint required = (uint)(PermissionMask.Move | PermissionMask.Modify |
+            PermissionMask.Copy | PermissionMask.Transfer);
+        return (permissions.Base & required) == required &&
+            (permissions.Owner & required) == required &&
+            (permissions.NextOwner & required) == required;
     }
 
     private static UUID Uuid(string? value, string label, bool allowZero = false)

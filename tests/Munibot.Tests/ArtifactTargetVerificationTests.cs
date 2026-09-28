@@ -1,4 +1,5 @@
 using OpenMetaverse;
+using System.Text;
 
 namespace Munibot.Tests;
 
@@ -13,6 +14,9 @@ public sealed class ArtifactTargetVerificationTests
     private static readonly InventoryPermissionMasksDto TargetMasks = new(
         (uint)PermissionMask.All, (uint)(PermissionMask.Move | PermissionMask.Copy),
         0, 0, (uint)(PermissionMask.Move | PermissionMask.Copy));
+    private static readonly InventoryPermissionMasksDto MarkerMasks = new(
+        (uint)PermissionMask.All, (uint)PermissionMask.All,
+        (uint)PermissionMask.All, (uint)PermissionMask.All, (uint)PermissionMask.All);
 
     [Theory]
     [InlineData(PermissionMask.Modify)]
@@ -95,9 +99,85 @@ public sealed class ArtifactTargetVerificationTests
     {
         var marker = Marker("managed-runtime", AssetType.LSLText, UUID.Random());
         var requested = new ArtifactBundleMarkerSpec(marker.Name, UUID.Random(), marker.AssetType);
-        var error = Assert.Throws<ArtifactRelayException>(() =>
-            GridTaskInventoryTarget.VerifyBundle([marker], [requested]));
-        Assert.Equal("bundle_mismatch", error.Code);
+
+        var match = GridTaskInventoryTarget.MatchBundleMarker([marker], requested);
+
+        Assert.Contains("asset_identity", match.Mismatches);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompleteScriptProofAllowsNonComparableOrOpaqueAssetIdentity(bool opaque)
+    {
+        var marker = Marker("titler-scanner.lsl", AssetType.LSLText, UUID.Random());
+        if (opaque) marker.AssetUUID = UUID.Zero;
+        marker.Permissions = Permissions(MarkerMasks);
+        var source = Encoding.UTF8.GetBytes("default { state_entry() { } }\n");
+        var proof = new ArtifactBundleScriptProofSpec(InventoryType.LSL, MarkerMasks, true,
+            TaskInventoryContent.Hash(source), Guid.NewGuid());
+        var requested = new ArtifactBundleMarkerSpec(marker.Name, UUID.Random(), marker.AssetType, proof);
+
+        var match = GridTaskInventoryTarget.MatchBundleMarker([marker], requested);
+        var evidence = GridTaskInventoryTarget.ScriptProofMismatches(
+            proof, source, true, proof.ExperienceId);
+
+        Assert.NotEqual(marker.AssetUUID, requested.AssetId);
+        Assert.Empty(match.Mismatches);
+        Assert.Empty(evidence);
+    }
+
+    [Theory]
+    [InlineData("inventory-type", "inventory_type")]
+    [InlineData("permissions", "permissions")]
+    public void ScriptProofRequiresExactStructuralEvidence(string mismatch, string field)
+    {
+        var marker = Marker("titler-scanner.lsl", AssetType.LSLText);
+        marker.Permissions = Permissions(MarkerMasks);
+        var proof = ScriptProof();
+        if (mismatch == "inventory-type") marker.InventoryType = InventoryType.Notecard;
+        if (mismatch == "permissions") marker.Permissions.OwnerMask &= ~PermissionMask.Transfer;
+
+        var match = GridTaskInventoryTarget.MatchBundleMarker([marker],
+            new(marker.Name, UUID.Random(), AssetType.LSLText, proof));
+
+        Assert.Contains(field, match.Mismatches);
+    }
+
+    [Theory]
+    [InlineData("hash", "source_hash")]
+    [InlineData("running", "running")]
+    [InlineData("experience", "experience")]
+    [InlineData("experience-unconfirmed", "experience_unconfirmed")]
+    public void ScriptProofRejectsAnyRuntimeEvidenceMismatch(string mismatch, string field)
+    {
+        var proof = ScriptProof();
+        var source = Encoding.UTF8.GetBytes("default { state_entry() { } }\n");
+        var running = proof.Running;
+        Guid? experience = proof.ExperienceId;
+        if (mismatch == "running") running = !running;
+        if (mismatch == "experience") experience = Guid.NewGuid();
+        if (mismatch == "experience-unconfirmed") experience = null;
+
+        var mismatches = GridTaskInventoryTarget.ScriptProofMismatches(
+            proof, mismatch == "hash" ? Encoding.UTF8.GetBytes("changed\n") : source,
+            running, experience);
+
+        Assert.Contains(field, mismatches);
+    }
+
+    [Fact]
+    public void BundleMarkerStillRequiresExactCaseAndSingleInventoryItem()
+    {
+        var marker = Marker("titler-scanner.lsl", AssetType.LSLText);
+        var requested = new ArtifactBundleMarkerSpec(marker.Name, marker.AssetUUID, marker.AssetType);
+        var caseVariant = Marker("Titler-Scanner.lsl", AssetType.LSLText, marker.AssetUUID);
+
+        Assert.Contains("inventory_name",
+            GridTaskInventoryTarget.MatchBundleMarker([caseVariant], requested).Mismatches);
+        Assert.Contains("inventory_count",
+            GridTaskInventoryTarget.MatchBundleMarker([marker, Marker(marker.Name, marker.AssetType)], requested)
+                .Mismatches);
     }
 
     [Fact]
@@ -190,6 +270,12 @@ public sealed class ArtifactTargetVerificationTests
     private static InventoryItem Marker(string name, AssetType type, UUID? asset = null) =>
         new(type == AssetType.LSLText ? InventoryType.LSL : InventoryType.Object, UUID.Random())
         { Name = name, AssetType = type, AssetUUID = asset ?? UUID.Random() };
+
+    private static ArtifactBundleScriptProofSpec ScriptProof()
+    {
+        var source = Encoding.UTF8.GetBytes("default { state_entry() { } }\n");
+        return new(InventoryType.LSL, MarkerMasks, true, TaskInventoryContent.Hash(source), Guid.NewGuid());
+    }
 
     private static Permissions Permissions(InventoryPermissionMasksDto masks) =>
         new(masks.Base, masks.Everyone, masks.Group, masks.NextOwner, masks.Owner);

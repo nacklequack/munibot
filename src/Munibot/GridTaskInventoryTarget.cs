@@ -189,7 +189,7 @@ internal sealed class GridTaskInventoryTarget(
             source.AssetUUID == UUID.Zero ? "opaque" : "visible");
 
         var before = await ReadInventoryAsync(ct);
-        VerifyBundle(before, spec.BundleMarkers);
+        await VerifyBundleAsync(before, spec.BundleMarkers, requestId, ct);
         var prior = FindExactName(before, source.Name);
         if (prior is not null)
         {
@@ -349,18 +349,119 @@ internal sealed class GridTaskInventoryTarget(
                 "The source object does not carry the group sharing required by the managed scanner.");
     }
 
-    internal static void VerifyBundle(IReadOnlyList<InventoryItem> inventory,
-        IReadOnlyList<ArtifactBundleMarkerSpec> markers)
+    private async Task VerifyBundleAsync(IReadOnlyList<InventoryItem> inventory,
+        IReadOnlyList<ArtifactBundleMarkerSpec> markers, Guid requestId, CancellationToken ct)
     {
-        foreach (var marker in markers)
+        for (var index = 0; index < markers.Count; index++)
         {
-            var matches = inventory.Where(x => x.Name.Equals(marker.Name, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (matches.Count != 1 || matches[0].Name != marker.Name || matches[0].AssetType != marker.AssetType ||
-                matches[0].AssetUUID != marker.AssetId)
-                throw new ArtifactRelayException("bundle_mismatch",
-                    "The target inventory did not match the exact managed bundle markers.");
+            var marker = markers[index];
+            var match = MatchBundleMarker(inventory, marker);
+            if (match.Mismatches.Count != 0)
+            {
+                LogBundleFailure(requestId, index + 1, "bundle_mismatch", match.Mismatches);
+                throw BundleMismatch(match.Mismatches);
+            }
+            if (marker.ScriptProof is not { } proof)
+            {
+                logger.LogInformation(
+                    "Artifact bundle marker verified; requestId={RequestId} markerIndex={MarkerIndex} identityMode=exact fields={Fields} targetMutation=not-started",
+                    requestId, index + 1, "count,name,asset_type,asset_identity");
+                continue;
+            }
+
+            TaskInventorySourceAsset source;
+            bool running;
+            Guid? experience;
+            var field = "source_hash";
+            try
+            {
+                source = await sourceReader.ReadAsync(match.Item!, ct);
+                field = "running";
+                running = await ReadRunningAsync(match.Item!, ct);
+                field = "experience";
+                experience = await experiences.ReadAsync(primitive.ID, match.Item!.UUID, ct);
+                EnsureSimulator();
+            }
+            catch (TaskInventoryException ex)
+            {
+                LogBundleFailure(requestId, index + 1, "bundle_unconfirmed", [field]);
+                throw new ArtifactRelayException("bundle_unconfirmed",
+                    $"The managed bundle marker {field.Replace('_', ' ')} could not be verified before target mutation.",
+                    ex.Retryable);
+            }
+
+            IReadOnlyList<string> mismatches;
+            try { mismatches = ScriptProofMismatches(proof, source.Source, running, experience); }
+            catch (ArgumentException)
+            {
+                LogBundleFailure(requestId, index + 1, "bundle_mismatch", ["source_hash"]);
+                throw BundleMismatch(["source_hash"]);
+            }
+            if (mismatches.Count != 0)
+            {
+                var unconfirmed = mismatches.Contains("experience_unconfirmed");
+                LogBundleFailure(requestId, index + 1, unconfirmed ? "bundle_unconfirmed" : "bundle_mismatch",
+                    mismatches);
+                if (unconfirmed)
+                    throw new ArtifactRelayException("bundle_unconfirmed",
+                        "The managed bundle marker Experience association could not be verified before target mutation.",
+                        true);
+                throw BundleMismatch(mismatches);
+            }
+
+            var identityMode = match.Item!.AssetUUID == marker.AssetId || source.AssetId == marker.AssetId
+                ? "exact" : "script-proof";
+            logger.LogInformation(
+                "Artifact bundle marker verified; requestId={RequestId} markerIndex={MarkerIndex} identityMode={IdentityMode} fields={Fields} targetMutation=not-started",
+                requestId, index + 1, identityMode,
+                "count,name,asset_type,inventory_type,permissions,source_hash,running,experience");
         }
     }
+
+    internal static ArtifactBundleMarkerMatch MatchBundleMarker(IReadOnlyList<InventoryItem> inventory,
+        ArtifactBundleMarkerSpec marker)
+    {
+        var matches = inventory.Where(item =>
+            item.Name.Equals(marker.Name, StringComparison.OrdinalIgnoreCase)).ToList();
+        var mismatches = new List<string>();
+        if (matches.Count != 1)
+        {
+            mismatches.Add("inventory_count");
+            return new(null, mismatches);
+        }
+
+        var item = matches[0];
+        if (item.Name != marker.Name) mismatches.Add("inventory_name");
+        if (item.AssetType != marker.AssetType) mismatches.Add("asset_type");
+        if (marker.ScriptProof is { } proof)
+        {
+            if (item.InventoryType != proof.InventoryType) mismatches.Add("inventory_type");
+            if (!proof.Permissions.Matches(item.Permissions)) mismatches.Add("permissions");
+        }
+        else if (item.AssetUUID != marker.AssetId) mismatches.Add("asset_identity");
+        return new(item, mismatches);
+    }
+
+    internal static IReadOnlyList<string> ScriptProofMismatches(ArtifactBundleScriptProofSpec proof,
+        byte[] source, bool running, Guid? experience)
+    {
+        var mismatches = new List<string>();
+        if (!TaskInventoryContent.Hash(source).Equals(proof.SourceSha256, StringComparison.Ordinal))
+            mismatches.Add("source_hash");
+        if (running != proof.Running) mismatches.Add("running");
+        if (experience is null) mismatches.Add("experience_unconfirmed");
+        else if (experience.Value != proof.ExperienceId) mismatches.Add("experience");
+        return mismatches;
+    }
+
+    private void LogBundleFailure(Guid requestId, int markerIndex, string code,
+        IReadOnlyList<string> fields) => logger.LogWarning(
+        "Artifact bundle marker verification failed; requestId={RequestId} markerIndex={MarkerIndex} code={Code} fields={Fields} targetMutation=not-started",
+        requestId, markerIndex, code, string.Join(',', fields));
+
+    private static ArtifactRelayException BundleMismatch(IReadOnlyList<string> fields) => new(
+        "bundle_mismatch",
+        $"The target inventory did not match the managed bundle marker fields: {string.Join(", ", fields)}.");
 
     internal static InventoryItem? FindExactName(IReadOnlyList<InventoryItem> inventory, string name)
     {

@@ -112,7 +112,18 @@ public sealed record ArtifactOfferStatusDto(
     bool Retryable,
     bool OutcomeUnknown);
 
-public sealed record ArtifactBundleMarkerDto(string Name, string AssetId, string AssetType);
+public sealed record ArtifactBundleScriptProofDto(
+    string InventoryType,
+    InventoryPermissionMasksDto Permissions,
+    bool Running,
+    string SourceSha256,
+    string ExperienceId);
+
+public sealed record ArtifactBundleMarkerDto(
+    string Name,
+    string AssetId,
+    string AssetType,
+    ArtifactBundleScriptProofDto? ScriptProof = null);
 
 public sealed record ArtifactRelayRequestDto(
     string Region,
@@ -181,4 +192,19 @@ internal sealed record ArtifactRelaySpec(
     IReadOnlyList<ArtifactBundleMarkerSpec> BundleMarkers,
     InventoryPermissionMasksDto ExpectedTargetPermissions);
 
-internal sealed record ArtifactBundleMarkerSpec(string Name, UUID AssetId, AssetType AssetType);
+internal sealed record ArtifactBundleScriptProofSpec(
+    InventoryType InventoryType,
+    InventoryPermissionMasksDto Permissions,
+    bool Running,
+    string SourceSha256,
+    Guid ExperienceId);
+
+internal sealed record ArtifactBundleMarkerSpec(
+    string Name,
+    UUID AssetId,
+    AssetType AssetType,
+    ArtifactBundleScriptProofSpec? ScriptProof = null);
+
+internal sealed record ArtifactBundleMarkerMatch(
+    InventoryItem? Item,
+    IReadOnlyList<string> Mismatches);
