@@ -27,7 +27,9 @@ try
     builder.Logging.AddFilter("Microsoft.AspNetCore.Http.Result", LogLevel.Warning);
 
     builder.Services.AddSingleton(botConfig);
+    builder.Services.AddSingleton(TimeProvider.System);
     builder.Services.AddSingleton<SecondLifeBotSession>();
+    builder.Services.AddSingleton<IMunibotSessionLifecycle>(services => services.GetRequiredService<SecondLifeBotSession>());
     builder.Services.AddSingleton<IArtifactRelayService>(services => services.GetRequiredService<SecondLifeBotSession>());
     builder.Services.AddSingleton<IActiveGroupService>(services => services.GetRequiredService<SecondLifeBotSession>().ActiveGroupService);
     builder.Services.AddSingleton<ISecondLifeAccountHistoryClient, SecondLifeAccountHistoryClient>();
