@@ -11,9 +11,13 @@ public sealed partial class SecondLifeBotSession(
     BotConfig config,
     ILogger<SecondLifeBotSession> logger,
     ISecondLifeAccountHistoryClient accountHistoryClient,
-    IWalletEventPublisher walletEventPublisher) : IAsyncDisposable
+    IWalletEventPublisher walletEventPublisher,
+    TimeProvider? timeProvider = null) : IMunibotSessionLifecycle, IAsyncDisposable
 {
     private readonly GridClient _client = new();
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly SessionTransportDiagnostics _transportDiagnostics = new(timeProvider ?? TimeProvider.System);
+    private readonly object _transportDiagnosticsLock = new();
     private readonly SemaphoreSlim _groupRosterLock = new(1, 1);
     private readonly SemaphoreSlim _groupOperationLock = new(1, 1);
     private readonly SemaphoreSlim _teleportLock = new(1, 1);
@@ -30,11 +34,14 @@ public sealed partial class SecondLifeBotSession(
     private readonly HashSet<string> _deliveredWalletEventTransactionIds = new(StringComparer.OrdinalIgnoreCase);
     private int? _lastObservedWalletBalance;
     private bool _eventsWired;
+    private Simulator? _diagnosticSimulator;
+    private SessionDisconnectSnapshot? _lastDisconnect;
 
     public bool IsOnline => _client.Network.Connected;
     public string? CurrentSimulator => _client.Network.CurrentSim?.Name;
     public string AgentId => _client.Self.AgentID.ToString();
     public string? LastDisconnectReason { get; private set; }
+    SessionDisconnectSnapshot? IMunibotSessionLifecycle.LastDisconnect => _lastDisconnect;
 
     public BotLocationDto GetLocation()
     {
@@ -103,6 +110,13 @@ public sealed partial class SecondLifeBotSession(
         ConfigureMovementKeepalive();
         var loginSimulator = _client.Network.CurrentSim
             ?? throw new InvalidOperationException("No simulator is connected after login.");
+
+        lock (_transportDiagnosticsLock)
+        {
+            _diagnosticSimulator = loginSimulator;
+            _transportDiagnostics.StartConnection();
+        }
+
         if (!await WaitForAgentMovementCompleteAsync(loginSimulator, cancellationToken))
             throw new TimeoutException("Agent movement did not complete after login.");
         RefreshCameraInterest("login");
@@ -149,6 +163,32 @@ public sealed partial class SecondLifeBotSession(
         _client.Self.Movement.SendUpdate(false);
         logger.LogDebug("Movement keepalive AgentUpdate sent.");
         return true;
+    }
+
+    SessionTransportSnapshot? IMunibotSessionLifecycle.CaptureTransportSnapshot()
+        => CaptureTransportSnapshot();
+
+    private SessionTransportSnapshot? CaptureTransportSnapshot()
+    {
+        lock (_transportDiagnosticsLock)
+        {
+            if (_diagnosticSimulator is null)
+            {
+                return null;
+            }
+
+            return _transportDiagnostics.Capture(GetTransportCounters(_diagnosticSimulator));
+        }
+    }
+
+    private static SessionTransportCounters GetTransportCounters(Simulator simulator)
+    {
+        var stats = simulator.Stats;
+        return new SessionTransportCounters(
+            stats.GetRecvPackets(),
+            stats.GetSentPackets(),
+            stats.GetReceivedResends(),
+            stats.GetResentPackets());
     }
 
     private void RefreshCameraInterest(string context)
@@ -2449,8 +2489,49 @@ public sealed partial class SecondLifeBotSession(
         _client.Network.Disconnected += (_, e) =>
         {
             LastDisconnectReason = $"{e.Reason}: {e.Message}";
-            logger.LogWarning("Disconnected: {Reason} - {Message}", e.Reason, e.Message);
+            var kind = e.Reason == NetworkManager.DisconnectType.NetworkTimeout
+                ? SessionDisconnectKind.NetworkTimeout
+                : SessionDisconnectKind.Other;
+            SessionDisconnectSnapshot disconnect;
+            lock (_transportDiagnosticsLock)
+            {
+                disconnect = _diagnosticSimulator is null
+                    ? new SessionDisconnectSnapshot(kind, _timeProvider.GetUtcNow(), null)
+                    : _transportDiagnostics.CaptureDisconnect(kind, GetTransportCounters(_diagnosticSimulator));
+            }
+
+            _lastDisconnect = disconnect;
+            var transport = disconnect.Transport;
+
+            if (transport is null)
+            {
+                logger.LogWarning("Simulator connection ended; disconnectReason={DisconnectReason}", kind);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Simulator connection ended; connectionGeneration={ConnectionGeneration} disconnectReason={DisconnectReason} connectedMilliseconds={ConnectedMilliseconds} lastReceivedPacketAgeMilliseconds={LastReceivedPacketAgeMilliseconds} receivedPackets={ReceivedPackets} sentPackets={SentPackets} receivedResends={ReceivedResends} resentPackets={ResentPackets}",
+                    transport.ConnectionGeneration,
+                    kind,
+                    transport.ConnectedDuration.TotalMilliseconds,
+                    transport.LastReceivedPacketAge?.TotalMilliseconds,
+                    transport.ReceivedPackets,
+                    transport.SentPackets,
+                    transport.ReceivedResends,
+                    transport.ResentPackets);
+            }
         };
+
+        _client.Network.RegisterCallback(PacketType.Default, (_, e) =>
+        {
+            lock (_transportDiagnosticsLock)
+            {
+                if (ReferenceEquals(e.Simulator, _diagnosticSimulator))
+                {
+                    _transportDiagnostics.RecordReceivedPacket();
+                }
+            }
+        }, false);
 
         _client.Self.MoneyBalance += (_, e) => _ = HandleWalletBalanceAsync(e);
         _client.Self.MoneyBalanceReply += (_, e) => _ = HandleWalletBalanceReplyAsync(e);

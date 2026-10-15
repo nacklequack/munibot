@@ -3,12 +3,15 @@ using Microsoft.Extensions.Logging;
 
 namespace Munibot;
 
-public sealed class MunibotHostedService(
+internal sealed class MunibotHostedService(
     BotConfig config,
-    SecondLifeBotSession session,
+    IMunibotSessionLifecycle session,
     ILogger<MunibotHostedService> logger,
-    IHostApplicationLifetime lifetime) : BackgroundService
+    IHostApplicationLifetime lifetime,
+    TimeProvider timeProvider) : BackgroundService
 {
+    private static readonly TimeSpan StableConnectionDuration = TimeSpan.FromMinutes(10);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var attempts = 0;
@@ -35,7 +38,7 @@ public sealed class MunibotHostedService(
                     "Retrying Munibot login in {DelaySeconds} second(s)",
                     config.Runtime.ReconnectDelaySeconds);
 
-                await Task.Delay(TimeSpan.FromSeconds(config.Runtime.ReconnectDelaySeconds), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(config.Runtime.ReconnectDelaySeconds), timeProvider, stoppingToken);
             }
         }
 
@@ -45,7 +48,7 @@ public sealed class MunibotHostedService(
                 "Smoke-test mode enabled; staying logged in for {Seconds} second(s)",
                 config.Runtime.ExitAfterLoginSeconds);
 
-            await Task.Delay(TimeSpan.FromSeconds(config.Runtime.ExitAfterLoginSeconds), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(config.Runtime.ExitAfterLoginSeconds), timeProvider, stoppingToken);
             lifetime.StopApplication();
             return;
         }
@@ -53,14 +56,31 @@ public sealed class MunibotHostedService(
         logger.LogInformation("Munibot is online. Press Ctrl+C to logout.");
 
         var nextKeepaliveAt = NextKeepaliveAt();
+        var stableConnectionLogged = false;
         while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(5), timeProvider, stoppingToken);
 
             if (session.IsOnline)
             {
+                if (!stableConnectionLogged &&
+                    session.CaptureTransportSnapshot() is { } transport &&
+                    transport.ConnectedDuration >= StableConnectionDuration)
+                {
+                    logger.LogInformation(
+                        "Simulator connection stable; connectionGeneration={ConnectionGeneration} connectedMilliseconds={ConnectedMilliseconds} lastReceivedPacketAgeMilliseconds={LastReceivedPacketAgeMilliseconds} receivedPackets={ReceivedPackets} sentPackets={SentPackets} receivedResends={ReceivedResends} resentPackets={ResentPackets}",
+                        transport.ConnectionGeneration,
+                        transport.ConnectedDuration.TotalMilliseconds,
+                        transport.LastReceivedPacketAge?.TotalMilliseconds,
+                        transport.ReceivedPackets,
+                        transport.SentPackets,
+                        transport.ReceivedResends,
+                        transport.ResentPackets);
+                    stableConnectionLogged = true;
+                }
+
                 if (config.Runtime.MovementKeepaliveSeconds > 0 &&
-                    DateTimeOffset.UtcNow >= nextKeepaliveAt)
+                    timeProvider.GetUtcNow() >= nextKeepaliveAt)
                 {
                     try
                     {
@@ -86,12 +106,13 @@ public sealed class MunibotHostedService(
                 "Munibot is offline; attempting reconnect in {DelaySeconds} second(s)",
                 config.Runtime.ReconnectDelaySeconds);
 
-            await Task.Delay(TimeSpan.FromSeconds(config.Runtime.ReconnectDelaySeconds), stoppingToken);
+            await Task.Delay(TimeSpan.FromSeconds(config.Runtime.ReconnectDelaySeconds), timeProvider, stoppingToken);
 
             try
             {
                 await session.LoginAsync(stoppingToken);
                 nextKeepaliveAt = NextKeepaliveAt();
+                stableConnectionLogged = false;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -101,7 +122,7 @@ public sealed class MunibotHostedService(
     }
 
     private DateTimeOffset NextKeepaliveAt()
-        => DateTimeOffset.UtcNow.AddSeconds(Math.Max(config.Runtime.MovementKeepaliveSeconds, 1));
+        => timeProvider.GetUtcNow().AddSeconds(Math.Max(config.Runtime.MovementKeepaliveSeconds, 1));
 
     public override Task StopAsync(CancellationToken cancellationToken)
     {

@@ -73,6 +73,8 @@ Munibot logs API calls and Second Life events to stdout. API body logging is dis
 
 After login, Munibot sends a lightweight Second Life `AgentUpdate` on `runtime.movement_keepalive_seconds` so the simulator circuit does not sit idle. The default is 20 seconds; set it to `0` only for debugging.
 
+Munibot records sanitized transport counters when a simulator connection ends and after it remains online for ten continuous minutes. These summaries include packet totals, resend totals, connection duration, and the age of the last decoded packet. They do not include avatar identifiers, simulator names, or network endpoints.
+
 Readiness is available at:
 
 ```text
