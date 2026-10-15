@@ -72,16 +72,6 @@ public sealed class BotConfig
             throw new InvalidOperationException("runtime.exit_after_login_seconds cannot be negative.");
         }
 
-        if (Runtime.ReconnectDelaySeconds <= 0)
-        {
-            throw new InvalidOperationException("runtime.reconnect_delay_seconds must be greater than zero.");
-        }
-
-        if (Runtime.MaxReconnectAttempts < 0)
-        {
-            throw new InvalidOperationException("runtime.max_reconnect_attempts cannot be negative.");
-        }
-
         if (Runtime.MovementKeepaliveSeconds < 0)
         {
             throw new InvalidOperationException("runtime.movement_keepalive_seconds cannot be negative.");
@@ -236,9 +226,6 @@ public sealed class BotLoginConfig
 public sealed class BotRuntimeConfig
 {
     public int ExitAfterLoginSeconds { get; init; }
-    public bool Reconnect { get; init; } = true;
-    public int ReconnectDelaySeconds { get; init; } = 15;
-    public int MaxReconnectAttempts { get; init; }
     public int MovementKeepaliveSeconds { get; init; } = 20;
 }
 

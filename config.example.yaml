@@ -15,10 +15,6 @@ login:
 runtime:
   # 0 means stay online until Ctrl+C. Use a short value for a login smoke test.
   exit_after_login_seconds: 0
-  reconnect: true
-  reconnect_delay_seconds: 15
-  # 0 means retry forever.
-  max_reconnect_attempts: 0
   # Sends periodic AgentUpdate packets so the simulator UDP circuit does not sit idle.
   # Set to 0 to disable.
   movement_keepalive_seconds: 20

@@ -124,15 +124,33 @@ public sealed partial class SecondLifeBotSession(
         LastDisconnectReason = null;
     }
 
-    public void Logout()
+    Task<ProviderSessionCloseOutcome> IMunibotSessionLifecycle.LogoutAsync(CancellationToken cancellationToken)
+        => LogoutSessionAsync(cancellationToken);
+
+    private Task<ProviderSessionCloseOutcome> LogoutSessionAsync(CancellationToken cancellationToken)
     {
         if (!_client.Network.Connected)
         {
-            return;
+            return Task.FromResult(ProviderSessionCloseOutcome.Ambiguous);
         }
 
         logger.LogInformation("Logging out");
-        _client.Network.Logout();
+        var acknowledged = false;
+        EventHandler<LoggedOutEventArgs> loggedOut = (_, _) => acknowledged = true;
+        _client.Network.LoggedOut += loggedOut;
+        try
+        {
+            _client.Network.Logout();
+        }
+        finally
+        {
+            _client.Network.LoggedOut -= loggedOut;
+        }
+
+        return Task.FromResult(
+            acknowledged
+                ? ProviderSessionCloseOutcome.Acknowledged
+                : ProviderSessionCloseOutcome.Ambiguous);
     }
 
     private void ConfigureMovementKeepalive()
@@ -3184,9 +3202,9 @@ public sealed partial class SecondLifeBotSession(
 
     private sealed record GenericMessageParameterDto(int Index, string Value);
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        Logout();
+        await LogoutSessionAsync(CancellationToken.None);
         _client.Dispose();
         _groupRosterLock.Dispose();
         _groupOperationLock.Dispose();
@@ -3197,6 +3215,5 @@ public sealed partial class SecondLifeBotSession(
         _inventoryLock.Dispose();
         _walletLock.Dispose();
         _estateLock.Dispose();
-        return ValueTask.CompletedTask;
     }
 }

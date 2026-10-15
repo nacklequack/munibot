@@ -35,8 +35,10 @@ internal interface IMunibotSessionLifecycle
     Task LoginAsync(CancellationToken cancellationToken);
     bool SendMovementKeepalive();
     SessionTransportSnapshot? CaptureTransportSnapshot();
-    void Logout();
+    Task<ProviderSessionCloseOutcome> LogoutAsync(CancellationToken cancellationToken);
 }
+
+internal sealed record SessionProcessIdentity(string Nonce);
 
 internal sealed class SessionTransportDiagnostics(TimeProvider timeProvider)
 {

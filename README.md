@@ -12,11 +12,17 @@ Copy the sample config and fill in bot credentials:
 Copy-Item .\config.example.yaml .\config.yaml
 ```
 
-Then run:
+Munibot must run with a class-wide Kubernetes Lease claim. The chart injects
+the required namespace and claim name and mounts the rotating service-account
+token. For local compilation without contacting the provider, run:
 
 ```powershell
-dotnet run --project .\src\Munibot\Munibot.csproj -- --config .\config.yaml --urls http://127.0.0.1:5107
+dotnet build .\Munibot.slnx
 ```
+
+Do not run a provider login outside that claim boundary. A login failure,
+unexpected disconnect, process crash, or ambiguous logout retains ownership and
+requires operator reconciliation; Munibot does not reconnect automatically.
 
 For a short login smoke test that exits automatically, set:
 
@@ -35,15 +41,9 @@ Build locally:
 docker build -t munibot .
 ```
 
-Run with a mounted YAML config:
-
-```powershell
-docker run --rm -p 5107:5107 `
-  -v ${PWD}\config.yaml:/app/config/config.yaml:ro `
-  munibot
-```
-
-The container listens on `http://0.0.0.0:5107` and reads `/app/config/config.yaml` by default.
+The container listens on `http://0.0.0.0:5107` and reads
+`/app/config/config.yaml` by default. Run it through the ownership-aware chart;
+a standalone container intentionally fails closed before provider login.
 
 The GitHub Actions workflow publishes the image to GitHub Container Registry as:
 
@@ -75,7 +75,8 @@ After login, Munibot sends a lightweight Second Life `AgentUpdate` on `runtime.m
 
 Munibot records sanitized transport counters when a simulator connection ends and after it remains online for ten continuous minutes. These summaries include packet totals, resend totals, connection duration, and the age of the last decoded packet. They do not include avatar identifiers, simulator names, or network endpoints.
 
-Readiness is available at:
+Readiness requires both the durable claim and the online provider session and is
+available at:
 
 ```text
 GET /ready

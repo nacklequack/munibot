@@ -28,6 +28,9 @@ try
 
     builder.Services.AddSingleton(botConfig);
     builder.Services.AddSingleton(TimeProvider.System);
+    builder.Services.AddSingleton(new SessionProcessIdentity(Guid.NewGuid().ToString("N")));
+    builder.Services.AddSingleton<ISessionClaimStore>(_ => KubernetesLeaseSessionClaimStore.FromPodEnvironment());
+    builder.Services.AddSingleton<ISessionClaimCoordinator, SessionClaimCoordinator>();
     builder.Services.AddSingleton<SecondLifeBotSession>();
     builder.Services.AddSingleton<IMunibotSessionLifecycle>(services => services.GetRequiredService<SecondLifeBotSession>());
     builder.Services.AddSingleton<IArtifactRelayService>(services => services.GetRequiredService<SecondLifeBotSession>());
@@ -42,7 +45,8 @@ try
         builder.Services.AddSingleton<IWalletEventPublisher, DisabledWalletEventPublisher>();
     }
 
-    builder.Services.AddHostedService<MunibotHostedService>();
+    builder.Services.AddSingleton<MunibotHostedService>();
+    builder.Services.AddHostedService(services => services.GetRequiredService<MunibotHostedService>());
 
     var app = builder.Build();
 
@@ -57,9 +61,9 @@ try
     app.MapGet("/health", (SecondLifeBotSession session) =>
         Results.Ok(new HealthDto(session.IsOnline, session.IsOnline ? session.AgentId : null, session.CurrentSimulator)));
 
-    app.MapGet("/ready", (SecondLifeBotSession session) =>
+    app.MapGet("/ready", (SecondLifeBotSession session, MunibotHostedService hostedService) =>
     {
-        var ready = session.IsOnline;
+        var ready = hostedService.IsReady;
         var dto = new ReadyDto(
             ready,
             session.IsOnline,
