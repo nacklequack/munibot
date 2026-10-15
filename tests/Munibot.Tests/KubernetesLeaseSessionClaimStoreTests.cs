@@ -85,6 +85,21 @@ public sealed class KubernetesLeaseSessionClaimStoreTests
         Assert.False(replaced);
     }
 
+    [Fact]
+    public async Task DeletedLeaseFailsClosedInsteadOfBeingRecreated()
+    {
+        var handler = new RecordingHandler(_ => Json(HttpStatusCode.NotFound, "{}"));
+        var store = new KubernetesLeaseSessionClaimStore(
+            new HttpClient(handler) { BaseAddress = new Uri("https://kubernetes.default.svc") },
+            "bots",
+            "munibot-session");
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => store.ReadAsync(CancellationToken.None));
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Get, request.Method);
+    }
+
     private static HttpResponseMessage Json(HttpStatusCode status, string content)
         => new(status)
         {

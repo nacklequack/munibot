@@ -38,6 +38,21 @@ public sealed class MunibotHostedServiceTests
     }
 
     [Fact]
+    public async Task MissingOrPartitionedClaimStoreStopsWithoutConnectingToProvider()
+    {
+        var claims = new FakeClaims { AcquireException = new HttpRequestException("claim unavailable") };
+        var session = new FakeSession();
+        var fixture = CreateFixture(session, claims);
+
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await fixture.Lifetime.WaitForStopAsync();
+
+        Assert.Equal(0, session.LoginCalls);
+        Assert.False(fixture.Service.IsReady);
+        await fixture.Service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task AmbiguousLoginFailureRetainsClaimAndStops()
     {
         var claims = new FakeClaims();
@@ -87,6 +102,27 @@ public sealed class MunibotHostedServiceTests
         Assert.False(fixture.Service.IsReady);
     }
 
+    [Fact]
+    public async Task PartitionDuringUnexpectedDisconnectCannotBecomeAnAcknowledgedRelease()
+    {
+        var claims = new FakeClaims { CloseExceptionCount = 1 };
+        var session = new FakeSession { LogoutOutcome = ProviderSessionCloseOutcome.Acknowledged };
+        var fixture = CreateFixture(session, claims);
+
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await session.WaitForLoginAsync();
+        await fixture.Time.WaitForNextTimerAsync();
+        session.Disconnect();
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await fixture.Lifetime.WaitForStopAsync();
+        await fixture.Service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(
+            [ProviderSessionCloseOutcome.Ambiguous, ProviderSessionCloseOutcome.Ambiguous],
+            claims.CloseOutcomes);
+        Assert.DoesNotContain(ProviderSessionCloseOutcome.Acknowledged, claims.CloseOutcomes);
+    }
+
     private static Fixture CreateFixture(FakeSession session, FakeClaims claims)
     {
         var time = new SignalingFakeTimeProvider();
@@ -114,11 +150,18 @@ public sealed class MunibotHostedServiceTests
             SessionClaimPhase.Owned);
         public bool AcquireCompleted { get; private set; }
         public int AcquireCalls { get; private set; }
+        public Exception? AcquireException { get; init; }
+        public int CloseExceptionCount { get; set; }
         public List<ProviderSessionCloseOutcome> CloseOutcomes { get; } = [];
 
         public Task<SessionClaimAcquisition> AcquireAsync(string processNonce, CancellationToken cancellationToken)
         {
             AcquireCalls++;
+            if (AcquireException is not null)
+            {
+                throw AcquireException;
+            }
+
             AcquireCompleted = true;
             return Task.FromResult(Acquisition);
         }
@@ -126,6 +169,12 @@ public sealed class MunibotHostedServiceTests
         public Task CloseAsync(SessionClaimToken token, ProviderSessionCloseOutcome outcome, CancellationToken cancellationToken)
         {
             CloseOutcomes.Add(outcome);
+            if (CloseExceptionCount > 0)
+            {
+                CloseExceptionCount--;
+                throw new HttpRequestException("claim update unavailable");
+            }
+
             return Task.CompletedTask;
         }
     }

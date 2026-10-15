@@ -16,6 +16,7 @@ internal sealed class MunibotHostedService(
     private readonly SemaphoreSlim _closeLock = new(1, 1);
     private SessionClaimToken? _claim;
     private bool _claimClosed;
+    private volatile bool _terminalAmbiguous;
     private volatile bool _draining;
 
     public bool IsReady => !_draining && !_claimClosed && _claim is not null && session.IsOnline;
@@ -51,7 +52,8 @@ internal sealed class MunibotHostedService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "Munibot login outcome is ambiguous; retaining the session claim");
-            await CloseClaimAsync(ProviderSessionCloseOutcome.Ambiguous, CancellationToken.None);
+            _terminalAmbiguous = true;
+            await RetainAmbiguousClaimAsync();
             lifetime.StopApplication();
             return;
         }
@@ -82,7 +84,8 @@ internal sealed class MunibotHostedService(
             if (!session.IsOnline)
             {
                 logger.LogError("Munibot disconnected without an acknowledged logout; retaining the session claim");
-                await CloseClaimAsync(ProviderSessionCloseOutcome.Ambiguous, CancellationToken.None);
+                _terminalAmbiguous = true;
+                await RetainAmbiguousClaimAsync();
                 lifetime.StopApplication();
                 return;
             }
@@ -143,6 +146,18 @@ internal sealed class MunibotHostedService(
         }
     }
 
+    private async Task RetainAmbiguousClaimAsync()
+    {
+        try
+        {
+            await CloseClaimAsync(ProviderSessionCloseOutcome.Ambiguous, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogCritical(ex, "Munibot session claim could not be marked uncertain; its existing ownership is retained");
+        }
+    }
+
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _draining = true;
@@ -164,6 +179,18 @@ internal sealed class MunibotHostedService(
             outcome = ProviderSessionCloseOutcome.Ambiguous;
         }
 
-        await CloseClaimAsync(outcome, cancellationToken);
+        if (_terminalAmbiguous)
+        {
+            outcome = ProviderSessionCloseOutcome.Ambiguous;
+        }
+
+        try
+        {
+            await CloseClaimAsync(outcome, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogCritical(ex, "Munibot session claim could not be closed; its existing ownership is retained");
+        }
     }
 }
