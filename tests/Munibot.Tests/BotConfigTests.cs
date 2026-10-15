@@ -14,9 +14,6 @@ public sealed class BotConfigTests
               password: secret
             runtime:
               exit_after_login_seconds: 0
-              reconnect: true
-              reconnect_delay_seconds: 7
-              max_reconnect_attempts: 3
               movement_keepalive_seconds: 13
             api:
               group_roster_timeout_seconds: 11
@@ -62,8 +59,6 @@ public sealed class BotConfigTests
         var config = BotConfig.Load(path);
 
         Assert.Equal("Test", config.Login.FirstName);
-        Assert.Equal(7, config.Runtime.ReconnectDelaySeconds);
-        Assert.Equal(3, config.Runtime.MaxReconnectAttempts);
         Assert.Equal(13, config.Runtime.MovementKeepaliveSeconds);
         Assert.Equal(11, config.Api.GroupRosterTimeoutSeconds);
         Assert.Equal(17, config.Api.AvatarLookupTimeoutSeconds);
@@ -111,8 +106,6 @@ public sealed class BotConfigTests
     }
 
     [Theory]
-    [InlineData("runtime:\n  reconnect_delay_seconds: 0", "runtime.reconnect_delay_seconds")]
-    [InlineData("runtime:\n  max_reconnect_attempts: -1", "runtime.max_reconnect_attempts")]
     [InlineData("runtime:\n  movement_keepalive_seconds: -1", "runtime.movement_keepalive_seconds")]
     [InlineData("api:\n  group_roster_timeout_seconds: 0", "api.group_roster_timeout_seconds")]
     [InlineData("api:\n  avatar_lookup_timeout_seconds: 0", "api.avatar_lookup_timeout_seconds")]
