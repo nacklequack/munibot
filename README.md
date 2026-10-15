@@ -75,6 +75,8 @@ After login, Munibot sends a lightweight Second Life `AgentUpdate` on `runtime.m
 
 Munibot records sanitized transport counters when a simulator connection ends and after it remains online for ten continuous minutes. These summaries include packet totals, resend totals, connection duration, and the age of the last decoded packet. They do not include avatar identifiers, simulator names, or network endpoints.
 
+Consecutive simulator `NetworkTimeout` disconnects use `runtime.reconnect_delay_seconds` as an exponential-backoff base and `runtime.max_reconnect_delay_seconds` as the cap. A successful login does not clear the timeout streak; the connection must remain continuously online for `runtime.reconnect_reset_after_seconds`. Initial login failures and other disconnect reasons retain the fixed base delay.
+
 Readiness is available at:
 
 ```text

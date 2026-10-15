@@ -5,6 +5,16 @@ namespace Munibot.Tests;
 public sealed class BotConfigTests
 {
     [Fact]
+    public void RuntimeReconnectDefaultsRemainBackwardCompatible()
+    {
+        var runtime = new BotRuntimeConfig();
+
+        Assert.Equal(15, runtime.ReconnectDelaySeconds);
+        Assert.Equal(300, runtime.MaxReconnectDelaySeconds);
+        Assert.Equal(600, runtime.ReconnectResetAfterSeconds);
+    }
+
+    [Fact]
     public void Load_ReadsDiagnosticsAndTokens()
     {
         var path = WriteConfig("""
@@ -16,6 +26,8 @@ public sealed class BotConfigTests
               exit_after_login_seconds: 0
               reconnect: true
               reconnect_delay_seconds: 7
+              max_reconnect_delay_seconds: 70
+              reconnect_reset_after_seconds: 90
               max_reconnect_attempts: 3
               movement_keepalive_seconds: 13
             api:
@@ -63,6 +75,8 @@ public sealed class BotConfigTests
 
         Assert.Equal("Test", config.Login.FirstName);
         Assert.Equal(7, config.Runtime.ReconnectDelaySeconds);
+        Assert.Equal(70, config.Runtime.MaxReconnectDelaySeconds);
+        Assert.Equal(90, config.Runtime.ReconnectResetAfterSeconds);
         Assert.Equal(3, config.Runtime.MaxReconnectAttempts);
         Assert.Equal(13, config.Runtime.MovementKeepaliveSeconds);
         Assert.Equal(11, config.Api.GroupRosterTimeoutSeconds);
@@ -112,6 +126,8 @@ public sealed class BotConfigTests
 
     [Theory]
     [InlineData("runtime:\n  reconnect_delay_seconds: 0", "runtime.reconnect_delay_seconds")]
+    [InlineData("runtime:\n  max_reconnect_delay_seconds: 0", "runtime.max_reconnect_delay_seconds")]
+    [InlineData("runtime:\n  reconnect_reset_after_seconds: 0", "runtime.reconnect_reset_after_seconds")]
     [InlineData("runtime:\n  max_reconnect_attempts: -1", "runtime.max_reconnect_attempts")]
     [InlineData("runtime:\n  movement_keepalive_seconds: -1", "runtime.movement_keepalive_seconds")]
     [InlineData("api:\n  group_roster_timeout_seconds: 0", "api.group_roster_timeout_seconds")]

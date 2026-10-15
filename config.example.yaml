@@ -17,6 +17,10 @@ runtime:
   exit_after_login_seconds: 0
   reconnect: true
   reconnect_delay_seconds: 15
+  # Consecutive simulator network timeouts back off up to this delay.
+  max_reconnect_delay_seconds: 300
+  # A connection must remain online this long before the timeout streak resets.
+  reconnect_reset_after_seconds: 600
   # 0 means retry forever.
   max_reconnect_attempts: 0
   # Sends periodic AgentUpdate packets so the simulator UDP circuit does not sit idle.

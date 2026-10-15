@@ -10,8 +10,6 @@ internal sealed class MunibotHostedService(
     IHostApplicationLifetime lifetime,
     TimeProvider timeProvider) : BackgroundService
 {
-    private static readonly TimeSpan StableConnectionDuration = TimeSpan.FromMinutes(10);
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var attempts = 0;
@@ -55,6 +53,10 @@ internal sealed class MunibotHostedService(
 
         logger.LogInformation("Munibot is online. Press Ctrl+C to logout.");
 
+        var reconnectPolicy = new ReconnectDelayPolicy(
+            TimeSpan.FromSeconds(config.Runtime.ReconnectDelaySeconds),
+            TimeSpan.FromSeconds(config.Runtime.MaxReconnectDelaySeconds));
+        var stableConnectionDuration = TimeSpan.FromSeconds(config.Runtime.ReconnectResetAfterSeconds);
         var nextKeepaliveAt = NextKeepaliveAt();
         var stableConnectionLogged = false;
         while (!stoppingToken.IsCancellationRequested)
@@ -65,8 +67,9 @@ internal sealed class MunibotHostedService(
             {
                 if (!stableConnectionLogged &&
                     session.CaptureTransportSnapshot() is { } transport &&
-                    transport.ConnectedDuration >= StableConnectionDuration)
+                    transport.ConnectedDuration >= stableConnectionDuration)
                 {
+                    reconnectPolicy.ResetTimeoutStreak();
                     logger.LogInformation(
                         "Simulator connection stable; connectionGeneration={ConnectionGeneration} connectedMilliseconds={ConnectedMilliseconds} lastReceivedPacketAgeMilliseconds={LastReceivedPacketAgeMilliseconds} receivedPackets={ReceivedPackets} sentPackets={SentPackets} receivedResends={ReceivedResends} resentPackets={ResentPackets}",
                         transport.ConnectionGeneration,
@@ -102,11 +105,14 @@ internal sealed class MunibotHostedService(
                 continue;
             }
 
+            var reconnect = reconnectPolicy.GetDelay(session.LastDisconnect);
             logger.LogWarning(
-                "Munibot is offline; attempting reconnect in {DelaySeconds} second(s)",
-                config.Runtime.ReconnectDelaySeconds);
+                "Munibot is offline; attempting reconnect in {DelaySeconds} second(s); disconnectReason={DisconnectReason} networkTimeoutStreak={NetworkTimeoutStreak}",
+                (int)reconnect.Delay.TotalSeconds,
+                reconnect.DisconnectKind?.ToString() ?? "LoginFailure",
+                reconnect.NetworkTimeoutStreak);
 
-            await Task.Delay(TimeSpan.FromSeconds(config.Runtime.ReconnectDelaySeconds), timeProvider, stoppingToken);
+            await Task.Delay(reconnect.Delay, timeProvider, stoppingToken);
 
             try
             {
@@ -116,6 +122,7 @@ internal sealed class MunibotHostedService(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                reconnectPolicy.MarkHandled(session.LastDisconnect);
                 logger.LogError(ex, "Munibot reconnect failed");
             }
         }

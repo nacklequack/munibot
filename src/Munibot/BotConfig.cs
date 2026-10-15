@@ -77,6 +77,16 @@ public sealed class BotConfig
             throw new InvalidOperationException("runtime.reconnect_delay_seconds must be greater than zero.");
         }
 
+        if (Runtime.MaxReconnectDelaySeconds <= 0)
+        {
+            throw new InvalidOperationException("runtime.max_reconnect_delay_seconds must be greater than zero.");
+        }
+
+        if (Runtime.ReconnectResetAfterSeconds <= 0)
+        {
+            throw new InvalidOperationException("runtime.reconnect_reset_after_seconds must be greater than zero.");
+        }
+
         if (Runtime.MaxReconnectAttempts < 0)
         {
             throw new InvalidOperationException("runtime.max_reconnect_attempts cannot be negative.");
@@ -238,6 +248,8 @@ public sealed class BotRuntimeConfig
     public int ExitAfterLoginSeconds { get; init; }
     public bool Reconnect { get; init; } = true;
     public int ReconnectDelaySeconds { get; init; } = 15;
+    public int MaxReconnectDelaySeconds { get; init; } = 300;
+    public int ReconnectResetAfterSeconds { get; init; } = 600;
     public int MaxReconnectAttempts { get; init; }
     public int MovementKeepaliveSeconds { get; init; } = 20;
 }
