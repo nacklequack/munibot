@@ -36,12 +36,23 @@ public sealed partial class SecondLifeBotSession(
     private bool _eventsWired;
     private Simulator? _diagnosticSimulator;
     private SessionDisconnectSnapshot? _lastDisconnect;
+    private int _loginStarted;
 
     public bool IsOnline => _client.Network.Connected;
     public string? CurrentSimulator => _client.Network.CurrentSim?.Name;
     public string AgentId => _client.Self.AgentID.ToString();
     public string? LastDisconnectReason { get; private set; }
-    SessionDisconnectSnapshot? IMunibotSessionLifecycle.LastDisconnect => _lastDisconnect;
+    SessionDisconnectSnapshot? IMunibotSessionLifecycle.LastDisconnect => Volatile.Read(ref _lastDisconnect);
+
+    internal static SessionDisconnectKind ClassifyDisconnect(NetworkManager.DisconnectType reason, string? message)
+        => reason switch
+        {
+            NetworkManager.DisconnectType.ServerInitiated
+                when string.Equals(message, "The region where you are standing is going down.", StringComparison.Ordinal)
+                => SessionDisconnectKind.RegionShutdown,
+            NetworkManager.DisconnectType.NetworkTimeout => SessionDisconnectKind.NetworkTimeout,
+            _ => SessionDisconnectKind.Other,
+        };
 
     public BotLocationDto GetLocation()
     {
@@ -59,6 +70,11 @@ public sealed partial class SecondLifeBotSession(
 
     public async Task LoginAsync(CancellationToken cancellationToken)
     {
+        // LibreMetaverse disposes its network processors on disconnect. Recovery
+        // must use a fresh process and acquire a new claim before logging in.
+        if (Interlocked.Exchange(ref _loginStarted, 1) != 0)
+            throw new InvalidOperationException("A provider session can only attempt login once per process.");
+
         WireEvents();
 
         var login = config.Login;
@@ -2507,9 +2523,7 @@ public sealed partial class SecondLifeBotSession(
         _client.Network.Disconnected += (_, e) =>
         {
             LastDisconnectReason = $"{e.Reason}: {e.Message}";
-            var kind = e.Reason == NetworkManager.DisconnectType.NetworkTimeout
-                ? SessionDisconnectKind.NetworkTimeout
-                : SessionDisconnectKind.Other;
+            var kind = ClassifyDisconnect(e.Reason, e.Message);
             SessionDisconnectSnapshot disconnect;
             lock (_transportDiagnosticsLock)
             {
@@ -2518,7 +2532,9 @@ public sealed partial class SecondLifeBotSession(
                     : _transportDiagnostics.CaptureDisconnect(kind, GetTransportCounters(_diagnosticSimulator));
             }
 
-            _lastDisconnect = disconnect;
+            // This instance logs in once. Preserve its first terminal event so
+            // duplicate notifications cannot replace the evidence used to close it.
+            Interlocked.CompareExchange(ref _lastDisconnect, disconnect, null);
             var transport = disconnect.Transport;
 
             if (transport is null)

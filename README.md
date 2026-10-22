@@ -22,7 +22,20 @@ dotnet build .\Munibot.slnx
 
 Do not run a provider login outside that claim boundary. A login failure,
 unexpected disconnect, process crash, or ambiguous logout retains ownership and
-requires operator reconciliation; Munibot does not reconnect automatically.
+requires operator reconciliation.
+
+Scheduled region downtime has one automatic recovery path: the provider must
+end the session with `ServerInitiated` and the exact message
+`The region where you are standing is going down.` Munibot becomes unready,
+holds its claim for a 60-second cooldown, releases only its matching owner and
+generation, and exits. Kubernetes starts a fresh process, which must acquire
+the claim before logging in. A graceful host stop during the cooldown can close
+the confirmed terminal session sooner. No connection is reused in-process.
+
+This exception does not cover network timeouts, generic kicks, unknown messages,
+or failed logins. Those still require reconciliation; a claim-store failure or
+changed owner/generation cannot authorize another login. The configured login
+start is preserved; the grid may choose an alternate region while it is down.
 
 For a short login smoke test that exits automatically, set:
 
