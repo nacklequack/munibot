@@ -10,6 +10,7 @@ internal enum SessionClaimPhase
 internal enum ProviderSessionCloseOutcome
 {
     Acknowledged,
+    RegionShutdown,
     Ambiguous,
 }
 
@@ -40,7 +41,7 @@ internal interface ISessionClaimStore
 internal interface ISessionClaimCoordinator
 {
     Task<SessionClaimAcquisition> AcquireAsync(string processNonce, CancellationToken cancellationToken);
-    Task CloseAsync(
+    Task<bool> CloseAsync(
         SessionClaimToken token,
         ProviderSessionCloseOutcome outcome,
         CancellationToken cancellationToken);
@@ -79,7 +80,7 @@ internal sealed class SessionClaimCoordinator(ISessionClaimStore store) : ISessi
         }
     }
 
-    public async Task CloseAsync(
+    public async Task<bool> CloseAsync(
         SessionClaimToken token,
         ProviderSessionCloseOutcome outcome,
         CancellationToken cancellationToken)
@@ -91,12 +92,12 @@ internal sealed class SessionClaimCoordinator(ISessionClaimStore store) : ISessi
                 current.Generation != token.Generation ||
                 !string.Equals(current.HolderIdentity, token.HolderIdentity, StringComparison.Ordinal))
             {
-                return;
+                return false;
             }
 
             var replacement = outcome switch
             {
-                ProviderSessionCloseOutcome.Acknowledged => current with
+                ProviderSessionCloseOutcome.Acknowledged or ProviderSessionCloseOutcome.RegionShutdown => current with
                 {
                     Phase = SessionClaimPhase.Released,
                     HolderIdentity = null,
@@ -106,7 +107,7 @@ internal sealed class SessionClaimCoordinator(ISessionClaimStore store) : ISessi
 
             if (await store.TryReplaceAsync(current, replacement, cancellationToken))
             {
-                return;
+                return true;
             }
         }
     }

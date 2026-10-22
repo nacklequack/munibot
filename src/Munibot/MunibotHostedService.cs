@@ -13,6 +13,7 @@ internal sealed class MunibotHostedService(
     TimeProvider timeProvider) : BackgroundService
 {
     private static readonly TimeSpan StableConnectionDuration = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan RegionShutdownCooldown = TimeSpan.FromMinutes(1);
     private readonly SemaphoreSlim _closeLock = new(1, 1);
     private SessionClaimToken? _claim;
     private bool _claimClosed;
@@ -83,6 +84,21 @@ internal sealed class MunibotHostedService(
 
             if (!session.IsOnline)
             {
+                // Connected is cleared immediately before LibreMetaverse raises
+                // Disconnected. Allow that terminal evidence to reach the adapter.
+                if (session.LastDisconnect is null)
+                    await Task.Delay(TimeSpan.FromSeconds(5), timeProvider, stoppingToken);
+
+                if (HasConfirmedRegionShutdown)
+                {
+                    _draining = true;
+                    logger.LogWarning("The provider ended the session for region shutdown; restarting after {CooldownSeconds} seconds", RegionShutdownCooldown.TotalSeconds);
+                    await Task.Delay(RegionShutdownCooldown, timeProvider, stoppingToken);
+                    await CloseConfirmedRegionShutdownAsync(CancellationToken.None);
+                    lifetime.StopApplication();
+                    return;
+                }
+
                 logger.LogError("Munibot disconnected without an acknowledged logout; retaining the session claim");
                 _terminalAmbiguous = true;
                 await RetainAmbiguousClaimAsync();
@@ -137,8 +153,9 @@ internal sealed class MunibotHostedService(
                 return;
             }
 
-            await claims.CloseAsync(_claim, outcome, cancellationToken);
-            _claimClosed = true;
+            _claimClosed = await claims.CloseAsync(_claim, outcome, cancellationToken);
+            if (!_claimClosed)
+                logger.LogCritical("Munibot session claim no longer matches this owner and generation; existing ownership is retained");
         }
         finally
         {
@@ -158,6 +175,21 @@ internal sealed class MunibotHostedService(
         }
     }
 
+    private bool HasConfirmedRegionShutdown => !_terminalAmbiguous && !session.IsOnline &&
+        session.LastDisconnect?.Kind is SessionDisconnectKind.RegionShutdown;
+
+    private async Task CloseConfirmedRegionShutdownAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await CloseClaimAsync(ProviderSessionCloseOutcome.RegionShutdown, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogCritical(ex, "Munibot claim could not be released after region shutdown; existing ownership is retained");
+        }
+    }
+
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _draining = true;
@@ -165,6 +197,14 @@ internal sealed class MunibotHostedService(
 
         if (_claim is null || _claimClosed)
         {
+            return;
+        }
+
+        // A host stop can interrupt the cooldown. The provider's terminal
+        // evidence still authorizes closing only this process's matching claim.
+        if (HasConfirmedRegionShutdown)
+        {
+            await CloseConfirmedRegionShutdownAsync(cancellationToken);
             return;
         }
 

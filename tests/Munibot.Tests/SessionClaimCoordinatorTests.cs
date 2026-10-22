@@ -47,7 +47,7 @@ public sealed class SessionClaimCoordinatorTests
         var token = Assert.IsType<SessionClaimToken>(
             (await coordinator.AcquireAsync("process-a", CancellationToken.None)).Token);
 
-        await coordinator.CloseAsync(token, ProviderSessionCloseOutcome.Acknowledged, CancellationToken.None);
+        Assert.True(await coordinator.CloseAsync(token, ProviderSessionCloseOutcome.Acknowledged, CancellationToken.None));
         var next = await coordinator.AcquireAsync("process-b", CancellationToken.None);
 
         Assert.Equal(SessionClaimPhase.Owned, store.State.Phase);
@@ -80,10 +80,10 @@ public sealed class SessionClaimCoordinatorTests
             9));
         var coordinator = new SessionClaimCoordinator(store);
 
-        await coordinator.CloseAsync(
+        Assert.False(await coordinator.CloseAsync(
             new SessionClaimToken("process-a", Generation: 8),
             ProviderSessionCloseOutcome.Acknowledged,
-            CancellationToken.None);
+            CancellationToken.None));
 
         Assert.Equal(SessionClaimPhase.Owned, store.State.Phase);
         Assert.Equal("process-b", store.State.HolderIdentity);

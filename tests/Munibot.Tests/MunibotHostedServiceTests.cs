@@ -103,6 +103,22 @@ public sealed class MunibotHostedServiceTests
     }
 
     [Fact]
+    public async Task LogoutTimeoutRetainsRealClaim()
+    {
+        var store = new MemoryClaimStore();
+        var claims = new SessionClaimCoordinator(store);
+        var session = new FakeSession { LogoutException = new TimeoutException("no provider acknowledgement") };
+        var fixture = CreateFixture(session, claims);
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await session.WaitForLoginAsync();
+        await fixture.Service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(SessionClaimPhase.Uncertain, store.State.Phase);
+        Assert.NotNull(store.State.HolderIdentity);
+        Assert.Null((await claims.AcquireAsync("replacement", CancellationToken.None)).Token);
+    }
+
+    [Fact]
     public async Task PartitionDuringUnexpectedDisconnectCannotBecomeAnAcknowledgedRelease()
     {
         var claims = new FakeClaims { CloseExceptionCount = 1 };
@@ -123,7 +139,184 @@ public sealed class MunibotHostedServiceTests
         Assert.DoesNotContain(ProviderSessionCloseOutcome.Acknowledged, claims.CloseOutcomes);
     }
 
-    private static Fixture CreateFixture(FakeSession session, FakeClaims claims)
+    [Fact]
+    public async Task RegionShutdownReleasesClaimForAFreshProcess()
+    {
+        var store = new MemoryClaimStore();
+        var claims = new SessionClaimCoordinator(store);
+        var session = new FakeSession();
+        var fixture = CreateFixture(session, claims);
+
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await session.WaitForLoginAsync();
+        await fixture.Time.WaitForNextTimerAsync();
+        session.Disconnect(SessionDisconnectKind.RegionShutdown);
+        Assert.False(fixture.Service.IsReady);
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await fixture.Time.WaitForNextTimerAsync();
+        Assert.Equal(SessionClaimPhase.Owned, store.State.Phase);
+        Assert.Null((await claims.AcquireAsync("competing-process", CancellationToken.None)).Token);
+        Assert.False(fixture.Lifetime.ApplicationStopping.IsCancellationRequested);
+        fixture.Time.Advance(TimeSpan.FromMinutes(1));
+        await fixture.Lifetime.WaitForStopAsync();
+        await fixture.Service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(SessionClaimPhase.Released, store.State.Phase);
+        var replacement = new FakeSession();
+        var next = CreateFixture(replacement, new SessionClaimCoordinator(store));
+        await next.Service.StartAsync(CancellationToken.None);
+        await replacement.WaitForLoginAsync();
+        Assert.True(next.Service.IsReady);
+        Assert.Equal(2, store.State.Generation);
+        Assert.Equal(1, session.LoginCalls);
+        Assert.Equal(1, replacement.LoginCalls);
+        session.Disconnect(SessionDisconnectKind.RegionShutdown);
+        await fixture.Service.StopAsync(CancellationToken.None);
+        Assert.Equal(SessionClaimPhase.Owned, store.State.Phase);
+        Assert.Equal(2, store.State.Generation);
+        await next.Service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ShutdownNotificationCanArriveAfterTheOfflineObservation()
+    {
+        var claims = new FakeClaims();
+        var session = new FakeSession();
+        var fixture = CreateFixture(session, claims);
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await session.WaitForLoginAsync();
+        await fixture.Time.WaitForNextTimerAsync();
+        session.DisconnectWithoutNotification();
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await fixture.Time.WaitForNextTimerAsync();
+        Assert.Empty(claims.CloseOutcomes);
+        session.Disconnect(SessionDisconnectKind.RegionShutdown);
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await fixture.Time.WaitForNextTimerAsync();
+        fixture.Time.Advance(TimeSpan.FromMinutes(1));
+        await fixture.Lifetime.WaitForStopAsync();
+        await fixture.Service.StopAsync(CancellationToken.None);
+        Assert.Equal([ProviderSessionCloseOutcome.RegionShutdown], claims.CloseOutcomes);
+    }
+
+    [Fact]
+    public async Task MissingTerminalNotificationStillRetainsClaim()
+    {
+        var claims = new FakeClaims();
+        var session = new FakeSession();
+        var fixture = CreateFixture(session, claims);
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await session.WaitForLoginAsync();
+        await fixture.Time.WaitForNextTimerAsync();
+        session.DisconnectWithoutNotification();
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await fixture.Time.WaitForNextTimerAsync();
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await fixture.Lifetime.WaitForStopAsync();
+        await fixture.Service.StopAsync(CancellationToken.None);
+        Assert.Equal([ProviderSessionCloseOutcome.Ambiguous], claims.CloseOutcomes);
+    }
+
+    [Fact]
+    public async Task StopDuringCooldownClosesConfirmedTerminalSessionExactlyOnce()
+    {
+        var claims = new FakeClaims();
+        var session = new FakeSession();
+        var fixture = CreateFixture(session, claims);
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await session.WaitForLoginAsync();
+        await fixture.Time.WaitForNextTimerAsync();
+        session.Disconnect(SessionDisconnectKind.RegionShutdown);
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await fixture.Time.WaitForNextTimerAsync();
+        await fixture.Service.StopAsync(CancellationToken.None);
+        await fixture.Service.StopAsync(CancellationToken.None);
+        Assert.Equal([ProviderSessionCloseOutcome.RegionShutdown], claims.CloseOutcomes);
+        Assert.False(fixture.Service.IsReady);
+    }
+
+    [Theory]
+    [InlineData("generation")]
+    [InlineData("holder")]
+    [InlineData("partition")]
+    [InlineData("conflict")]
+    public async Task FailedRegionShutdownReleaseCannotEnableAReplacementLogin(string failure)
+    {
+        var store = new MemoryClaimStore();
+        var claims = new SessionClaimCoordinator(store);
+        var session = new FakeSession();
+        var fixture = CreateFixture(session, claims);
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await session.WaitForLoginAsync();
+        await fixture.Time.WaitForNextTimerAsync();
+        session.Disconnect(SessionDisconnectKind.RegionShutdown);
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await fixture.Time.WaitForNextTimerAsync();
+
+        if (failure == "generation") store.State = store.State with { Generation = 0 };
+        if (failure == "holder") store.State = store.State with { HolderIdentity = "other-process" };
+        store.FailWrites = failure == "partition";
+        store.ChangeOwnerOnWrite = failure == "conflict";
+        fixture.Time.Advance(TimeSpan.FromMinutes(1));
+        await fixture.Lifetime.WaitForStopAsync();
+        await fixture.Service.StopAsync(CancellationToken.None);
+        Assert.Equal(SessionClaimPhase.Owned, store.State.Phase);
+        Assert.NotNull(store.State.HolderIdentity);
+
+        var replacement = new FakeSession();
+        var next = CreateFixture(replacement, claims);
+        await next.Service.StartAsync(CancellationToken.None);
+        await next.Lifetime.WaitForStopAsync();
+        Assert.Equal(0, replacement.LoginCalls);
+        Assert.False(next.Service.IsReady);
+        await next.Service.StopAsync(CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData((int)SessionDisconnectKind.NetworkTimeout)]
+    [InlineData((int)SessionDisconnectKind.Other)]
+    public async Task AmbiguousDisconnectKeepsRealClaimAndBlocksNextProcess(int kind)
+    {
+        var store = new MemoryClaimStore();
+        var claims = new SessionClaimCoordinator(store);
+        var session = new FakeSession();
+        var fixture = CreateFixture(session, claims);
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await session.WaitForLoginAsync();
+        await fixture.Time.WaitForNextTimerAsync();
+        session.Disconnect((SessionDisconnectKind)kind);
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await fixture.Lifetime.WaitForStopAsync();
+        await fixture.Service.StopAsync(CancellationToken.None);
+        Assert.Equal(SessionClaimPhase.Uncertain, store.State.Phase);
+        Assert.Null((await claims.AcquireAsync("replacement", CancellationToken.None)).Token);
+    }
+
+    private sealed class MemoryClaimStore : ISessionClaimStore
+    {
+        public SessionClaimState State { get; set; } = SessionClaimState.Released("1");
+        public bool FailWrites { get; set; }
+        public bool ChangeOwnerOnWrite { get; set; }
+
+        public Task<SessionClaimState> ReadAsync(CancellationToken cancellationToken)
+            => Task.FromResult(State);
+
+        public Task<bool> TryReplaceAsync(SessionClaimState expected, SessionClaimState replacement, CancellationToken cancellationToken)
+        {
+            if (FailWrites) throw new HttpRequestException("claim unavailable");
+            if (ChangeOwnerOnWrite)
+            {
+                ChangeOwnerOnWrite = false;
+                State = State with { ResourceVersion = "100", HolderIdentity = "other-process", Generation = 20 };
+                return Task.FromResult(false);
+            }
+            if (State.ResourceVersion != expected.ResourceVersion) return Task.FromResult(false);
+            State = replacement with { ResourceVersion = (long.Parse(State.ResourceVersion) + 1).ToString() };
+            return Task.FromResult(true);
+        }
+    }
+
+    private static Fixture CreateFixture(FakeSession session, ISessionClaimCoordinator claims)
     {
         var time = new SignalingFakeTimeProvider();
         var lifetime = new FakeApplicationLifetime();
@@ -131,7 +324,7 @@ public sealed class MunibotHostedServiceTests
             new BotConfig { Runtime = new BotRuntimeConfig { MovementKeepaliveSeconds = 0 } },
             session,
             claims,
-            new SessionProcessIdentity("opaque-test-nonce"),
+            new SessionProcessIdentity(Guid.NewGuid().ToString("N")),
             new TestLogger<MunibotHostedService>(),
             lifetime,
             time);
@@ -166,7 +359,7 @@ public sealed class MunibotHostedServiceTests
             return Task.FromResult(Acquisition);
         }
 
-        public Task CloseAsync(SessionClaimToken token, ProviderSessionCloseOutcome outcome, CancellationToken cancellationToken)
+        public Task<bool> CloseAsync(SessionClaimToken token, ProviderSessionCloseOutcome outcome, CancellationToken cancellationToken)
         {
             CloseOutcomes.Add(outcome);
             if (CloseExceptionCount > 0)
@@ -175,7 +368,7 @@ public sealed class MunibotHostedServiceTests
                 throw new HttpRequestException("claim update unavailable");
             }
 
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
     }
 
@@ -187,6 +380,7 @@ public sealed class MunibotHostedServiceTests
         public SessionDisconnectSnapshot? LastDisconnect { get; private set; }
         public int LoginCalls { get; private set; }
         public Exception? LoginException { get; init; }
+        public Exception? LogoutException { get; init; }
         public ProviderSessionCloseOutcome LogoutOutcome { get; init; } = ProviderSessionCloseOutcome.Ambiguous;
 
         public Task LoginAsync(CancellationToken cancellationToken)
@@ -209,17 +403,20 @@ public sealed class MunibotHostedServiceTests
             Assert.True(observed, "The hosted service did not attempt login.");
         }
 
-        public void Disconnect()
+        public void Disconnect(SessionDisconnectKind kind = SessionDisconnectKind.NetworkTimeout)
         {
             IsOnline = false;
-            LastDisconnect = new SessionDisconnectSnapshot(SessionDisconnectKind.NetworkTimeout, DateTimeOffset.UtcNow, null);
+            LastDisconnect = new SessionDisconnectSnapshot(kind, DateTimeOffset.UtcNow, null);
         }
+
+        public void DisconnectWithoutNotification() => IsOnline = false;
 
         public bool SendMovementKeepalive() => false;
         public SessionTransportSnapshot? CaptureTransportSnapshot() => null;
 
         public Task<ProviderSessionCloseOutcome> LogoutAsync(CancellationToken cancellationToken)
         {
+            if (LogoutException is not null) throw LogoutException;
             IsOnline = false;
             return Task.FromResult(LogoutOutcome);
         }

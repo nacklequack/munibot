@@ -4,6 +4,21 @@ namespace Munibot.Tests;
 
 public sealed class SessionTransportDiagnosticsTests
 {
+    [Theory]
+    [InlineData(OpenMetaverse.NetworkManager.DisconnectType.ServerInitiated, "The region where you are standing is going down.", true)]
+    [InlineData(OpenMetaverse.NetworkManager.DisconnectType.NetworkTimeout, "The region where you are standing is going down.", false)]
+    [InlineData(OpenMetaverse.NetworkManager.DisconnectType.ClientInitiated, "The region where you are standing is going down.", false)]
+    [InlineData(OpenMetaverse.NetworkManager.DisconnectType.ServerInitiated, "You have been logged out by an administrator.", false)]
+    [InlineData(OpenMetaverse.NetworkManager.DisconnectType.ServerInitiated, "You have been logged out because you logged in elsewhere.", false)]
+    [InlineData(OpenMetaverse.NetworkManager.DisconnectType.ServerInitiated, "The region where you are standing is going down. extra text", false)]
+    [InlineData(OpenMetaverse.NetworkManager.DisconnectType.ServerInitiated, null, false)]
+    public void OnlyTheExactServerRegionShutdownAuthorizesRecovery(
+        OpenMetaverse.NetworkManager.DisconnectType reason, string? message, bool recoverable)
+    {
+        Assert.Equal(recoverable,
+            SecondLifeBotSession.ClassifyDisconnect(reason, message) == SessionDisconnectKind.RegionShutdown);
+    }
+
     [Fact]
     public void CaptureReportsConnectionAgePacketAgeAndCounters()
     {

@@ -4,6 +4,7 @@ internal enum SessionDisconnectKind
 {
     Other,
     NetworkTimeout,
+    RegionShutdown,
 }
 
 internal sealed record SessionTransportCounters(
