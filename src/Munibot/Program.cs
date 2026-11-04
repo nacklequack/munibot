@@ -28,9 +28,6 @@ try
 
     builder.Services.AddSingleton(botConfig);
     builder.Services.AddSingleton(TimeProvider.System);
-    builder.Services.AddSingleton(new SessionProcessIdentity(Guid.NewGuid().ToString("N")));
-    builder.Services.AddSingleton<ISessionClaimStore>(_ => KubernetesLeaseSessionClaimStore.FromPodEnvironment());
-    builder.Services.AddSingleton<ISessionClaimCoordinator, SessionClaimCoordinator>();
     builder.Services.AddSingleton<SecondLifeBotSession>();
     builder.Services.AddSingleton<IMunibotSessionLifecycle>(services => services.GetRequiredService<SecondLifeBotSession>());
     builder.Services.AddSingleton<IArtifactRelayService>(services => services.GetRequiredService<SecondLifeBotSession>());

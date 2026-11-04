@@ -140,33 +140,21 @@ public sealed partial class SecondLifeBotSession(
         LastDisconnectReason = null;
     }
 
-    Task<ProviderSessionCloseOutcome> IMunibotSessionLifecycle.LogoutAsync(CancellationToken cancellationToken)
-        => LogoutSessionAsync(cancellationToken);
+    Task IMunibotSessionLifecycle.LogoutAsync(CancellationToken cancellationToken)
+    {
+        LogoutSession();
+        return Task.CompletedTask;
+    }
 
-    private Task<ProviderSessionCloseOutcome> LogoutSessionAsync(CancellationToken cancellationToken)
+    private void LogoutSession()
     {
         if (!_client.Network.Connected)
         {
-            return Task.FromResult(ProviderSessionCloseOutcome.Ambiguous);
+            return;
         }
 
         logger.LogInformation("Logging out");
-        var acknowledged = false;
-        EventHandler<LoggedOutEventArgs> loggedOut = (_, _) => acknowledged = true;
-        _client.Network.LoggedOut += loggedOut;
-        try
-        {
-            _client.Network.Logout();
-        }
-        finally
-        {
-            _client.Network.LoggedOut -= loggedOut;
-        }
-
-        return Task.FromResult(
-            acknowledged
-                ? ProviderSessionCloseOutcome.Acknowledged
-                : ProviderSessionCloseOutcome.Ambiguous);
+        _client.Network.Logout();
     }
 
     private void ConfigureMovementKeepalive()
@@ -3218,9 +3206,9 @@ public sealed partial class SecondLifeBotSession(
 
     private sealed record GenericMessageParameterDto(int Index, string Value);
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        await LogoutSessionAsync(CancellationToken.None);
+        LogoutSession();
         _client.Dispose();
         _groupRosterLock.Dispose();
         _groupOperationLock.Dispose();
@@ -3231,5 +3219,6 @@ public sealed partial class SecondLifeBotSession(
         _inventoryLock.Dispose();
         _walletLock.Dispose();
         _estateLock.Dispose();
+        return ValueTask.CompletedTask;
     }
 }

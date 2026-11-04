@@ -6,52 +6,25 @@ namespace Munibot;
 internal sealed class MunibotHostedService(
     BotConfig config,
     IMunibotSessionLifecycle session,
-    ISessionClaimCoordinator claims,
-    SessionProcessIdentity processIdentity,
     ILogger<MunibotHostedService> logger,
     IHostApplicationLifetime lifetime,
     TimeProvider timeProvider) : BackgroundService
 {
     private static readonly TimeSpan StableConnectionDuration = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RegionShutdownCooldown = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan ClaimRetryInterval = TimeSpan.FromSeconds(5);
-    private readonly SemaphoreSlim _closeLock = new(1, 1);
-    private SessionClaimToken? _claim;
-    private bool _claimClosed;
-    private volatile bool _terminalAmbiguous;
     private volatile bool _draining;
 
-    public bool IsReady => !_draining && !_claimClosed && _claim is not null && session.IsOnline;
+    public bool IsReady => !_draining && session.IsOnline;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        SessionClaimAcquisition? acquisition;
-        try
-        {
-            acquisition = await WaitForClaimAsync(stoppingToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogCritical(ex, "Munibot session claim could not be acquired; provider login is blocked");
-            lifetime.StopApplication();
-            return;
-        }
-
-        if (acquisition is null)
-        {
-            return;
-        }
-
-        _claim = acquisition.Token;
         try
         {
             await session.LoginAsync(stoppingToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Munibot login outcome is ambiguous; retaining the session claim");
-            _terminalAmbiguous = true;
-            await RetainAmbiguousClaimAsync();
+            logger.LogError(ex, "Munibot login failed; restarting with a fresh process");
             lifetime.StopApplication();
             return;
         }
@@ -67,7 +40,7 @@ internal sealed class MunibotHostedService(
             return;
         }
 
-        logger.LogInformation("Munibot session claim is owned and the provider session is online.");
+        logger.LogInformation("Munibot is online.");
 
         var nextKeepaliveAt = NextKeepaliveAt();
         var stableConnectionLogged = false;
@@ -84,21 +57,25 @@ internal sealed class MunibotHostedService(
                 // Connected is cleared immediately before LibreMetaverse raises
                 // Disconnected. Allow that terminal evidence to reach the adapter.
                 if (session.LastDisconnect is null)
-                    await Task.Delay(TimeSpan.FromSeconds(5), timeProvider, stoppingToken);
-
-                if (HasConfirmedRegionShutdown)
                 {
-                    _draining = true;
-                    logger.LogWarning("The provider ended the session for region shutdown; restarting after {CooldownSeconds} seconds", RegionShutdownCooldown.TotalSeconds);
-                    await Task.Delay(RegionShutdownCooldown, timeProvider, stoppingToken);
-                    await CloseConfirmedRegionShutdownAsync(CancellationToken.None);
-                    lifetime.StopApplication();
-                    return;
+                    await Task.Delay(TimeSpan.FromSeconds(5), timeProvider, stoppingToken);
                 }
 
-                logger.LogError("Munibot disconnected without an acknowledged logout; retaining the session claim");
-                _terminalAmbiguous = true;
-                await RetainAmbiguousClaimAsync();
+                _draining = true;
+                if (session.LastDisconnect?.Kind is SessionDisconnectKind.RegionShutdown)
+                {
+                    logger.LogWarning(
+                        "The provider ended the session for region shutdown; restarting after {CooldownSeconds} seconds",
+                        RegionShutdownCooldown.TotalSeconds);
+                    await Task.Delay(RegionShutdownCooldown, timeProvider, stoppingToken);
+                }
+                else
+                {
+                    logger.LogError(
+                        "Munibot disconnected; restarting with a fresh process; disconnectReason={DisconnectReason}",
+                        session.LastDisconnect?.Kind);
+                }
+
                 lifetime.StopApplication();
                 return;
             }
@@ -138,121 +115,18 @@ internal sealed class MunibotHostedService(
     private DateTimeOffset NextKeepaliveAt()
         => timeProvider.GetUtcNow().AddSeconds(Math.Max(config.Runtime.MovementKeepaliveSeconds, 1));
 
-    private async Task<SessionClaimAcquisition?> WaitForClaimAsync(CancellationToken cancellationToken)
-    {
-        SessionClaimPhase? loggedPhase = null;
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var acquisition = await claims.AcquireAsync(processIdentity.Nonce, cancellationToken);
-            if (acquisition.Token is not null)
-            {
-                return acquisition;
-            }
-
-            if (loggedPhase != acquisition.ExistingPhase)
-            {
-                logger.LogWarning(
-                    "Munibot session claim is not released; provider login remains blocked while this process waits; claimPhase={ClaimPhase}",
-                    acquisition.ExistingPhase);
-                loggedPhase = acquisition.ExistingPhase;
-            }
-
-            await Task.Delay(ClaimRetryInterval, timeProvider, cancellationToken);
-        }
-
-        return null;
-    }
-
-    private async Task CloseClaimAsync(
-        ProviderSessionCloseOutcome outcome,
-        CancellationToken cancellationToken)
-    {
-        await _closeLock.WaitAsync(cancellationToken);
-        try
-        {
-            if (_claim is null || _claimClosed)
-            {
-                return;
-            }
-
-            _claimClosed = await claims.CloseAsync(_claim, outcome, cancellationToken);
-            if (!_claimClosed)
-                logger.LogCritical("Munibot session claim no longer matches this owner and generation; existing ownership is retained");
-        }
-        finally
-        {
-            _closeLock.Release();
-        }
-    }
-
-    private async Task RetainAmbiguousClaimAsync()
-    {
-        try
-        {
-            await CloseClaimAsync(ProviderSessionCloseOutcome.Ambiguous, CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            logger.LogCritical(ex, "Munibot session claim could not be marked uncertain; its existing ownership is retained");
-        }
-    }
-
-    private bool HasConfirmedRegionShutdown => !_terminalAmbiguous && !session.IsOnline &&
-        session.LastDisconnect?.Kind is SessionDisconnectKind.RegionShutdown;
-
-    private async Task CloseConfirmedRegionShutdownAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await CloseClaimAsync(ProviderSessionCloseOutcome.RegionShutdown, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogCritical(ex, "Munibot claim could not be released after region shutdown; existing ownership is retained");
-        }
-    }
-
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _draining = true;
         await base.StopAsync(cancellationToken);
 
-        if (_claim is null || _claimClosed)
-        {
-            return;
-        }
-
-        // A host stop can interrupt the cooldown. The provider's terminal
-        // evidence still authorizes closing only this process's matching claim.
-        if (HasConfirmedRegionShutdown)
-        {
-            await CloseConfirmedRegionShutdownAsync(cancellationToken);
-            return;
-        }
-
-        ProviderSessionCloseOutcome outcome;
         try
         {
-            outcome = await session.LogoutAsync(cancellationToken);
+            await session.LogoutAsync(cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Munibot logout outcome is ambiguous; retaining the session claim");
-            outcome = ProviderSessionCloseOutcome.Ambiguous;
-        }
-
-        if (_terminalAmbiguous)
-        {
-            outcome = ProviderSessionCloseOutcome.Ambiguous;
-        }
-
-        try
-        {
-            await CloseClaimAsync(outcome, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            logger.LogCritical(ex, "Munibot session claim could not be closed; its existing ownership is retained");
+            logger.LogError(ex, "Munibot logout failed");
         }
     }
 }
