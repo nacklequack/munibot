@@ -12,30 +12,21 @@ Copy the sample config and fill in bot credentials:
 Copy-Item .\config.example.yaml .\config.yaml
 ```
 
-Munibot must run with a class-wide Kubernetes Lease claim. The chart injects
-the required namespace and claim name and mounts the rotating service-account
-token. For local compilation without contacting the provider, run:
+For local compilation without contacting the provider, run:
 
 ```powershell
 dotnet build .\Munibot.slnx
 ```
 
-Do not run a provider login outside that claim boundary. A login failure,
-unexpected disconnect, process crash, or ambiguous logout retains ownership and
-requires operator reconciliation.
+Run exactly one Munibot process for each configured provider account. The
+Munibase chart enforces this with a one-replica ordered StatefulSet instead of
+an application-managed session claim.
 
-Scheduled region downtime has one automatic recovery path: the provider must
-end the session with `ServerInitiated` and the exact message
-`The region where you are standing is going down.` Munibot becomes unready,
-holds its claim for a 60-second cooldown, releases only its matching owner and
-generation, and exits. Kubernetes starts a fresh process, which must acquire
-the claim before logging in. A graceful host stop during the cooldown can close
-the confirmed terminal session sooner. No connection is reused in-process.
-
-This exception does not cover network timeouts, generic kicks, unknown messages,
-or failed logins. Those still require reconciliation; a claim-store failure or
-changed owner/generation cannot authorize another login. The configured login
-start is preserved; the grid may choose an alternate region while it is down.
+After a failed login or disconnect, Munibot exits so Kubernetes can create a
+fresh process. LibreMetaverse network processors are not reused after a
+disconnect. Scheduled region shutdowns wait 60 seconds before restart; other
+disconnects restart immediately. The configured login start is preserved, but
+the grid may choose an alternate region while it is down.
 
 For a short login smoke test that exits automatically, set:
 
@@ -55,8 +46,8 @@ docker build -t munibot .
 ```
 
 The container listens on `http://0.0.0.0:5107` and reads
-`/app/config/config.yaml` by default. Run it through the ownership-aware chart;
-a standalone container intentionally fails closed before provider login.
+`/app/config/config.yaml` by default. Run it through an orchestrator that keeps
+exactly one process active for each configured provider account.
 
 The GitHub Actions workflow publishes the image to GitHub Container Registry as:
 
