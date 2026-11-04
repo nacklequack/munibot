@@ -14,6 +14,7 @@ internal sealed class MunibotHostedService(
 {
     private static readonly TimeSpan StableConnectionDuration = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RegionShutdownCooldown = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan ClaimRetryInterval = TimeSpan.FromSeconds(5);
     private readonly SemaphoreSlim _closeLock = new(1, 1);
     private SessionClaimToken? _claim;
     private bool _claimClosed;
@@ -24,10 +25,10 @@ internal sealed class MunibotHostedService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        SessionClaimAcquisition acquisition;
+        SessionClaimAcquisition? acquisition;
         try
         {
-            acquisition = await claims.AcquireAsync(processIdentity.Nonce, stoppingToken);
+            acquisition = await WaitForClaimAsync(stoppingToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -36,12 +37,8 @@ internal sealed class MunibotHostedService(
             return;
         }
 
-        if (acquisition.Token is null)
+        if (acquisition is null)
         {
-            logger.LogWarning(
-                "Munibot session claim is not released; provider login is blocked; claimPhase={ClaimPhase}",
-                acquisition.ExistingPhase);
-            lifetime.StopApplication();
             return;
         }
 
@@ -140,6 +137,31 @@ internal sealed class MunibotHostedService(
 
     private DateTimeOffset NextKeepaliveAt()
         => timeProvider.GetUtcNow().AddSeconds(Math.Max(config.Runtime.MovementKeepaliveSeconds, 1));
+
+    private async Task<SessionClaimAcquisition?> WaitForClaimAsync(CancellationToken cancellationToken)
+    {
+        SessionClaimPhase? loggedPhase = null;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var acquisition = await claims.AcquireAsync(processIdentity.Nonce, cancellationToken);
+            if (acquisition.Token is not null)
+            {
+                return acquisition;
+            }
+
+            if (loggedPhase != acquisition.ExistingPhase)
+            {
+                logger.LogWarning(
+                    "Munibot session claim is not released; provider login remains blocked while this process waits; claimPhase={ClaimPhase}",
+                    acquisition.ExistingPhase);
+                loggedPhase = acquisition.ExistingPhase;
+            }
+
+            await Task.Delay(ClaimRetryInterval, timeProvider, cancellationToken);
+        }
+
+        return null;
+    }
 
     private async Task CloseClaimAsync(
         ProviderSessionCloseOutcome outcome,

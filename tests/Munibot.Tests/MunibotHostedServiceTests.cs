@@ -23,17 +23,50 @@ public sealed class MunibotHostedServiceTests
     }
 
     [Fact]
-    public async Task ExistingClaimStopsWithoutConnectingToProvider()
+    public async Task ExistingClaimWaitsWithoutConnectingToProvider()
     {
         var claims = new FakeClaims { Acquisition = new SessionClaimAcquisition(null, SessionClaimPhase.Owned) };
         var session = new FakeSession();
         var fixture = CreateFixture(session, claims);
 
         await fixture.Service.StartAsync(CancellationToken.None);
-        await fixture.Lifetime.WaitForStopAsync();
+        await fixture.Time.WaitForNextTimerAsync();
 
         Assert.Equal(0, session.LoginCalls);
         Assert.False(fixture.Service.IsReady);
+        Assert.False(fixture.Lifetime.ApplicationStopping.IsCancellationRequested);
+        await fixture.Service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task UncertainClaimRequiresGuardedReleaseBeforeTheSameProcessCanLogin()
+    {
+        var store = new MemoryClaimStore
+        {
+            State = new SessionClaimState("1", SessionClaimPhase.Uncertain, "previous-process", 4),
+        };
+        var session = new FakeSession();
+        var fixture = CreateFixture(session, new SessionClaimCoordinator(store));
+
+        await fixture.Service.StartAsync(CancellationToken.None);
+        await fixture.Time.WaitForNextTimerAsync();
+        fixture.Time.Advance(TimeSpan.FromMinutes(30));
+        await fixture.Time.WaitForNextTimerAsync();
+
+        Assert.Equal(0, session.LoginCalls);
+        Assert.Equal(SessionClaimPhase.Uncertain, store.State.Phase);
+        Assert.Equal("previous-process", store.State.HolderIdentity);
+        Assert.Equal(4, store.State.Generation);
+        Assert.False(fixture.Lifetime.ApplicationStopping.IsCancellationRequested);
+
+        store.State = SessionClaimState.Released("2", generation: 4);
+        fixture.Time.Advance(TimeSpan.FromSeconds(5));
+        await session.WaitForLoginAsync();
+
+        Assert.True(fixture.Service.IsReady);
+        Assert.Equal(SessionClaimPhase.Owned, store.State.Phase);
+        Assert.NotEqual("previous-process", store.State.HolderIdentity);
+        Assert.Equal(5, store.State.Generation);
         await fixture.Service.StopAsync(CancellationToken.None);
     }
 
@@ -266,9 +299,10 @@ public sealed class MunibotHostedServiceTests
         var replacement = new FakeSession();
         var next = CreateFixture(replacement, claims);
         await next.Service.StartAsync(CancellationToken.None);
-        await next.Lifetime.WaitForStopAsync();
+        await next.Time.WaitForNextTimerAsync();
         Assert.Equal(0, replacement.LoginCalls);
         Assert.False(next.Service.IsReady);
+        Assert.False(next.Lifetime.ApplicationStopping.IsCancellationRequested);
         await next.Service.StopAsync(CancellationToken.None);
     }
 
